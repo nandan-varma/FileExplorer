@@ -1,0 +1,48 @@
+﻿<Window x:Class="FileBrowser.MainWindow"
+        x:Name="mainwindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:FileBrowser"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800"
+        SizeChanged="WindowSizeChanged">
+    <ScrollViewer x:Name="scrollingbar" VerticalScrollBarVisibility="Auto">
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="162*"/>
+                <ColumnDefinition Width="19*"/>
+                <ColumnDefinition Width="219*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.Background>
+                <SolidColorBrush Color="Black"></SolidColorBrush>
+            </Grid.Background>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="50"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="50"></RowDefinition>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="200"></ColumnDefinition>
+                    <ColumnDefinition Width="*"></ColumnDefinition>
+                </Grid.ColumnDefinitions>
+                <TextBlock Foreground="WhiteSmoke" Grid.Column="0" x:Name="titlebar" FontSize="32" Grid.ColumnSpan="2" Margin="0,0,-475,0">Directory</TextBlock>
+                <TextBlock Foreground="WhiteSmoke" Grid.Column="1" x:Name="details" FontSize="32" Margin="475,0,-475,0">Details</TextBlock>
+            </Grid>
+
+            <Canvas Grid.Row="1" x:Name="LayoutRoot" Grid.ColumnSpan="3">
+                <Canvas.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Copy"></MenuItem>
+                        <MenuItem Header="Paste"></MenuItem>
+                    </ContextMenu>
+                </Canvas.ContextMenu>
+            </Canvas>
+
+
+        </Grid>
+    </ScrollViewer>
+</Window>

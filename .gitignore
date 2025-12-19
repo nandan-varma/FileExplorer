@@ -1,20 +1,31 @@
-# Rust build
-/target/
-**/*.rs.bk
-
-# Cargo package files
-Cargo.lock
-
-# IDEs and editors
-/.idea/
-/.vscode/
-/*.swp
-*.sublime-workspace
-*.sublime-project
-
-# OS files
+# macOS
 .DS_Store
-Thumbs.db
+*.app
 
-# Other
-*.log
+# Build generated
+.build/
+.swiftpm/
+
+# Xcode
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.user
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.pbxuser
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# Swift Package Manager
+Package.resolved
+/Packages
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+
+# Temporary files
+*.tmp
+*.temp
+.netrc

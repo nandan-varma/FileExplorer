@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:FileExplorer}",
+            "name": "Debug explorer",
+            "target": "explorer",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug explorer"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:FileExplorer}",
+            "name": "Release explorer",
+            "target": "explorer",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release explorer"
+        }
+    ]
+}

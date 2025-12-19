@@ -24,7 +24,7 @@ cp .build/release/explorer "$MACOS_DIR/"
 codesign --force --sign - "$MACOS_DIR/explorer"
 
 # Copy Info.plist
-cp Sources/explorer/Info.plist "$CONTENTS_DIR/"
+cp Sources/Resources/Info.plist "$CONTENTS_DIR/"
 
 # Codesign the app with ad-hoc signing
 codesign --force --sign - "$APP_DIR"

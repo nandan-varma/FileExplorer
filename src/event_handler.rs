@@ -5,7 +5,14 @@
 
 use raylib::prelude::*;
 
-use crate::actions::*;
+use crate::actions::{
+    move_selection_down, move_selection_up, select_first, select_last, page_up, page_down,
+    handle_item_click, select_all, copy_selected, cut_selected, paste, initiate_delete,
+    initiate_rename, initiate_new_folder, toggle_hidden_files, cycle_sort_order,
+    start_search, clear_search, handle_search_input, copy_path, show_shortcuts_help,
+    navigate_up, enter_selected, confirm_delete, confirm_rename, confirm_new_folder,
+    scroll_up, scroll_down,
+};
 use crate::app_state::AppState;
 use crate::constants::*;
 use crate::ui::context_menu::ContextMenuAction;
@@ -84,13 +91,37 @@ fn handle_dialog_confirm(state: &mut AppState) {
 }
 
 /// Handles navigation keyboard shortcuts
-fn handle_navigation_keyboard(rl: &RaylibHandle, state: &mut AppState, visible_rows: usize) {
+fn handle_navigation_keyboard(rl: &mut RaylibHandle, state: &mut AppState, visible_rows: usize) {
+    // Standard navigation
     if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
         move_selection_down(state, visible_rows);
     }
     if rl.is_key_pressed(KeyboardKey::KEY_UP) {
         move_selection_up(state);
     }
+
+    // Extended navigation
+    if rl.is_key_pressed(KeyboardKey::KEY_PAGE_DOWN) {
+        page_down(state, visible_rows);
+    }
+    if rl.is_key_pressed(KeyboardKey::KEY_PAGE_UP) {
+        page_up(state, visible_rows);
+    }
+    if rl.is_key_pressed(KeyboardKey::KEY_HOME) {
+        select_first(state);
+    }
+    if rl.is_key_pressed(KeyboardKey::KEY_END) {
+        select_last(state, visible_rows);
+    }
+
+    // Type-ahead search
+    if let Some(c) = rl.get_char_pressed() {
+        if !state.has_active_dialog() && !rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) {
+            handle_search_input(state, c);
+        }
+    }
+
+    // Action keys
     if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
         enter_selected(state);
         state.context_menu.hide();
@@ -99,7 +130,24 @@ fn handle_navigation_keyboard(rl: &RaylibHandle, state: &mut AppState, visible_r
         navigate_up(state);
     }
     if rl.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
+        if state.search_active {
+            clear_search(state);
+        }
         state.context_menu.hide();
+    }
+
+    // Productivity shortcuts
+    if rl.is_key_pressed(KeyboardKey::KEY_H) {
+        toggle_hidden_files(state);
+    }
+    if rl.is_key_pressed(KeyboardKey::KEY_S) {
+        cycle_sort_order(state);
+    }
+    if rl.is_key_pressed(KeyboardKey::KEY_SLASH) {
+        start_search(state);
+    }
+    if rl.is_key_pressed(KeyboardKey::KEY_F1) {
+        show_shortcuts_help(state);
     }
 }
 
@@ -128,6 +176,11 @@ fn handle_shortcut_keyboard(rl: &RaylibHandle, state: &mut AppState, ctrl: bool)
     if rl.is_key_pressed(KeyboardKey::KEY_F2) {
         initiate_rename(state);
     }
+
+    // Copy path shortcut
+    if rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) && rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) && rl.is_key_pressed(KeyboardKey::KEY_C) {
+        copy_path(state);
+    }
 }
 
 /// Handles all mouse events
@@ -147,7 +200,7 @@ pub fn handle_mouse_events(
             mouse_y,
             layout,
             state.scroll_offset,
-            state.files.len(),
+            state.filtered_files.len(),
         );
     }
 
@@ -197,12 +250,14 @@ fn handle_ui_click(
     if is_back_button_clicked(mouse_x, mouse_y, layout) {
         navigate_up(state);
     } else if let Some(idx) = get_clicked_index(mouse_x, mouse_y, layout, state.scroll_offset) {
-        if idx < state.files.len() {
+        if idx < state.filtered_files.len() {
             let shift = rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT);
             let ctrl = rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
                 || rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL);
+            let alt = rl.is_key_down(KeyboardKey::KEY_LEFT_ALT)
+                || rl.is_key_down(KeyboardKey::KEY_RIGHT_ALT);
 
-            let is_double_click = handle_item_click(state, idx, shift, ctrl);
+            let is_double_click = handle_item_click(state, idx, shift, ctrl, alt);
 
             if is_double_click {
                 enter_selected(state);
@@ -230,7 +285,7 @@ fn handle_right_click(
     // Select item under cursor if not already selected
     if let Some(idx) = get_clicked_index(mouse_x, mouse_y, layout, state.scroll_offset) {
         if idx < state.files.len() && !state.selection.indices.contains(&idx) {
-            handle_item_click(state, idx, false, false);
+            handle_item_click(state, idx, false, false, false);
         }
     }
 

@@ -13,11 +13,13 @@ pub fn draw_status_bar(
     selection: &Selection,
     layout: &Layout,
     colors: &ColorScheme,
+    search_active: bool,
+    sort_order: &str,
 ) {
     let status_y = layout.window_height - layout.status_bar_height;
 
     draw_status_background(d, status_y, layout, colors);
-    draw_status_text(d, files, selection, status_y, layout, colors);
+    draw_status_text(d, files, selection, search_active, sort_order, status_y, layout, colors);
 }
 
 /// Draws the status bar background
@@ -36,12 +38,32 @@ fn draw_status_text(
     d: &mut RaylibDrawHandle,
     files: &[FileEntry],
     selection: &Selection,
+    search_active: bool,
+    sort_order: &str,
     status_y: i32,
     layout: &Layout,
     colors: &ColorScheme,
 ) {
     let (folder_count, file_count) = count_items(files);
-    let status_text = format_status_text(selection, folder_count, file_count);
+    let mut status_parts = Vec::new();
+
+    // Selection info
+    if selection.indices.len() > 1 {
+        status_parts.push(format!("{} items selected", selection.indices.len()));
+    }
+
+    // Item counts
+    status_parts.push(format!("{} folders, {} files", folder_count, file_count));
+
+    // Search indicator
+    if search_active {
+        status_parts.push("🔍 SEARCH".to_string());
+    }
+
+    // Sort order
+    status_parts.push(format!("Sort: {}", sort_order));
+
+    let status_text = status_parts.join("  |  ");
 
     d.draw_text(
         &status_text,

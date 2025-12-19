@@ -80,6 +80,9 @@ fn main() {
             state.clear_notification();
         }
 
+        // Clear search buffer if expired
+        state.clear_search_buffer_if_expired();
+
         // === Rendering ===
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(colors.background);
@@ -89,15 +92,24 @@ fn main() {
         draw_toolbar(&mut d, &layout, &colors);
         draw_file_list(
             &mut d,
-            &state.files,
+            &state.filtered_files,
+            &state.file_opacities,
             &state.selection,
             state.scroll_offset,
             &layout,
             &colors,
             state.hover_index,
         );
-        draw_scrollbar(&mut d, state.files.len(), state.scroll_offset, &layout, &colors);
-        draw_status_bar(&mut d, &state.files, &state.selection, &layout, &colors);
+        draw_scrollbar(&mut d, state.filtered_files.len(), state.scroll_offset, &layout, &colors);
+        draw_status_bar(
+            &mut d,
+            &state.filtered_files,
+            &state.selection,
+            &layout,
+            &colors,
+            state.search_active,
+            &format!("{:?}", state.sort_order),
+        );
 
         // Draw notification if present
         if !state.notification.is_empty() {

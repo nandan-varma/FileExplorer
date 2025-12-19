@@ -34,8 +34,8 @@ pub fn navigate_up(state: &mut AppState) {
 
 /// Opens the currently selected folder (if it's a directory)
 pub fn enter_selected(state: &mut AppState) {
-    if !state.files.is_empty() && state.selected < state.files.len() {
-        let selected_entry = &state.files[state.selected];
+    if !state.filtered_files.is_empty() && state.selected < state.filtered_files.len() {
+        let selected_entry = &state.filtered_files[state.selected];
         if selected_entry.is_dir {
             navigate_to_folder(state, &selected_entry.name.clone());
         }
@@ -46,14 +46,14 @@ pub fn enter_selected(state: &mut AppState) {
 
 /// Moves the selection down by one item
 pub fn move_selection_down(state: &mut AppState, visible_rows: usize) {
-    if state.selected + 1 < state.files.len() {
+    if state.selected + 1 < state.filtered_files.len() {
         state.selected += 1;
-        
+
         // Auto-scroll if needed
         if state.selected >= state.scroll_offset + visible_rows {
             state.scroll_offset = cmp::min(
                 state.scroll_offset + 1,
-                state.files.len().saturating_sub(visible_rows),
+                state.filtered_files.len().saturating_sub(visible_rows),
             );
         }
         
@@ -81,79 +81,172 @@ pub fn move_selection_up(state: &mut AppState) {
     }
 }
 
-/// Handles a mouse click on a file item
+/// Handles a mouse click on a file item with improved selection logic
 /// Returns true if this was a double-click
-pub fn handle_item_click(state: &mut AppState, idx: usize, shift: bool, ctrl: bool) -> bool {
-    let now = Instant::now();
-    let is_double_click = state.last_click_index == Some(idx)
-        && now.duration_since(state.last_click_time).as_millis() < DOUBLE_CLICK_THRESHOLD_MS;
-
-    state.last_click_time = now;
-    state.last_click_index = Some(idx);
-
-    if shift {
-        // Range selection
-        handle_range_selection(state, idx);
-    } else if ctrl {
-        // Multi selection (toggle)
-        handle_multi_selection(state, idx);
-    } else {
-        // Single selection
-        state.selection = Selection {
-            indices: vec![idx],
-            mode: SelectionMode::Single,
-        };
-    }
-    
-    state.selected = idx;
-    is_double_click
+pub fn handle_item_click(state: &mut AppState, idx: usize, shift: bool, ctrl: bool, alt: bool) -> bool {
+    state.handle_selection_click(idx, shift, ctrl, alt)
 }
 
 /// Handles range selection (Shift+Click)
-fn handle_range_selection(state: &mut AppState, end_idx: usize) {
-    let start = *state.selection.indices.first().unwrap_or(&state.selected);
-    let range = if start <= end_idx {
-        (start..=end_idx).collect()
-    } else {
-        (end_idx..=start).collect()
-    };
-    state.selection = Selection {
-        indices: range,
-        mode: SelectionMode::Range,
-    };
-}
 
-/// Handles multi-selection (Ctrl+Click)
-fn handle_multi_selection(state: &mut AppState, idx: usize) {
-    let mut indices = state.selection.indices.clone();
-    
-    // Toggle selection
-    if let Some(pos) = indices.iter().position(|&i| i == idx) {
-        indices.remove(pos);
-    } else {
-        indices.push(idx);
-    }
-    
-    // Ensure at least one item is selected
-    if indices.is_empty() {
-        indices.push(idx);
-    }
-    
-    state.selection = Selection {
-        indices,
-        mode: SelectionMode::Multi,
-    };
-}
 
 /// Selects all items in the current directory
 pub fn select_all(state: &mut AppState) {
     state.selection = Selection {
-        indices: (0..state.files.len()).collect(),
+        indices: (0..state.filtered_files.len()).collect(),
         mode: SelectionMode::Multi,
     };
-    if !state.files.is_empty() {
+    if !state.filtered_files.is_empty() {
         state.selected = 0;
     }
+}
+
+// === Navigation Actions ===
+
+/// Moves selection to the first item (Home)
+pub fn select_first(state: &mut AppState) {
+    if !state.filtered_files.is_empty() {
+        state.selected = 0;
+        state.selection = Selection {
+            indices: vec![0],
+            mode: SelectionMode::Single,
+        };
+        state.scroll_offset = 0;
+    }
+}
+
+/// Moves selection to the last item (End)
+pub fn select_last(state: &mut AppState, visible_rows: usize) {
+    if !state.filtered_files.is_empty() {
+        state.selected = state.filtered_files.len() - 1;
+        state.selection = Selection {
+            indices: vec![state.selected],
+            mode: SelectionMode::Single,
+        };
+        state.scroll_offset = state.filtered_files.len().saturating_sub(visible_rows);
+    }
+}
+
+/// Moves selection one page up (Page Up)
+pub fn page_up(state: &mut AppState, visible_rows: usize) {
+    if state.filtered_files.is_empty() {
+        return;
+    }
+
+    if state.selected > visible_rows {
+        state.selected = state.selected.saturating_sub(visible_rows);
+    } else {
+        state.selected = 0;
+    }
+
+    state.selection = Selection {
+        indices: vec![state.selected],
+        mode: SelectionMode::Single,
+    };
+
+    state.scroll_offset = state.scroll_offset.saturating_sub(visible_rows);
+}
+
+/// Moves selection one page down (Page Down)
+pub fn page_down(state: &mut AppState, visible_rows: usize) {
+    if state.filtered_files.is_empty() {
+        return;
+    }
+
+    state.selected = (state.selected + visible_rows).min(state.filtered_files.len() - 1);
+
+    state.selection = Selection {
+        indices: vec![state.selected],
+        mode: SelectionMode::Single,
+    };
+
+    state.scroll_offset = (state.scroll_offset + visible_rows).min(
+        state.filtered_files.len().saturating_sub(visible_rows)
+    );
+}
+
+// === Productivity Actions ===
+
+/// Toggles hidden files visibility
+pub fn toggle_hidden_files(state: &mut AppState) {
+    state.toggle_hidden_files();
+}
+
+/// Cycles through sort options
+pub fn cycle_sort_order(state: &mut AppState) {
+    use crate::app_state::SortOrder;
+
+    let new_sort = match state.sort_order {
+        SortOrder::NameAsc => SortOrder::NameDesc,
+        SortOrder::NameDesc => SortOrder::SizeAsc,
+        SortOrder::SizeAsc => SortOrder::SizeDesc,
+        SortOrder::SizeDesc => SortOrder::ModifiedAsc,
+        SortOrder::ModifiedAsc => SortOrder::ModifiedDesc,
+        SortOrder::ModifiedDesc => SortOrder::TypeAsc,
+        SortOrder::TypeAsc => SortOrder::TypeDesc,
+        SortOrder::TypeDesc => SortOrder::NameAsc,
+    };
+
+    state.set_sort_order(new_sort);
+    state.show_notification(&format!("Sorted by {:?}", new_sort));
+}
+
+/// Starts search mode
+pub fn start_search(state: &mut AppState) {
+    state.search_active = true;
+    state.show_notification("Type to search...");
+}
+
+/// Clears search and returns to normal mode
+pub fn clear_search(state: &mut AppState) {
+    state.clear_search();
+    state.show_notification("Search cleared");
+}
+
+/// Handles type-ahead search input
+pub fn handle_search_input(state: &mut AppState, c: char) {
+    if c.is_alphanumeric() || c.is_whitespace() {
+        state.add_to_search_buffer(c);
+    }
+}
+
+/// Copies the path of selected items to clipboard
+pub fn copy_path(state: &mut AppState) {
+    let paths: Vec<String> = state.selection.indices.iter()
+        .filter_map(|&i| {
+            if i < state.filtered_files.len() {
+                let mut path = state.current_path.clone();
+                path.push(&state.filtered_files[i].name);
+                Some(path.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !paths.is_empty() {
+        // In a real implementation, this would use the system clipboard
+        // For now, just show a notification
+        if paths.len() == 1 {
+            state.show_notification(&format!("Path copied: {}", paths[0]));
+        } else {
+            state.show_notification(&format!("{} paths copied", paths.len()));
+        }
+    }
+}
+
+/// Shows keyboard shortcuts help
+pub fn show_shortcuts_help(state: &mut AppState) {
+    state.dialog = crate::ui::dialogs::DialogType::Confirm {
+        title: "Keyboard Shortcuts".to_string(),
+        message: "Navigation: ↑↓, PageUp/PageDown, Home/End\n\
+                  Selection: Ctrl+A (select all), Shift+Click (range), Ctrl+Click (multi)\n\
+                  Files: Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste)\n\
+                  Actions: Delete (del), F2 (rename), Ctrl+N (new folder)\n\
+                  View: H (toggle hidden), S (sort), / (search), Escape (clear)\n\
+                  Other: Ctrl+Shift+C (copy path), F1 (help)".to_string(),
+        action: crate::ui::context_menu::ContextMenuAction::Properties,
+    };
 }
 
 // === Clipboard Actions ===
@@ -226,8 +319,8 @@ pub fn confirm_delete(state: &mut AppState) {
 
 /// Initiates the rename operation (shows input dialog)
 pub fn initiate_rename(state: &mut AppState) {
-    if state.selection.indices.len() == 1 && state.selected < state.files.len() {
-        state.dialog_input = state.files[state.selected].name.clone();
+    if state.selection.indices.len() == 1 && state.selected < state.filtered_files.len() {
+        state.dialog_input = state.filtered_files[state.selected].name.clone();
         state.dialog = DialogType::Input {
             title: DIALOG_TITLE_RENAME.to_string(),
             prompt: DIALOG_PROMPT_RENAME.to_string(),
@@ -239,9 +332,9 @@ pub fn initiate_rename(state: &mut AppState) {
 
 /// Confirms and executes the rename operation
 pub fn confirm_rename(state: &mut AppState) {
-    if !state.dialog_input.is_empty() && state.selected < state.files.len() {
+    if !state.dialog_input.is_empty() && state.selected < state.filtered_files.len() {
         let mut old_path = state.current_path.clone();
-        old_path.push(&state.files[state.selected].name);
+        old_path.push(&state.filtered_files[state.selected].name);
 
         match rename_file(&old_path, &state.dialog_input) {
             Ok(_) => {

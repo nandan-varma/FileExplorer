@@ -3,6 +3,7 @@
 //! Displays the list of files and folders with icons, selection, and hover effects
 
 use raylib::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::file_system::FileEntry;
 use crate::input::Selection;
@@ -12,6 +13,7 @@ use crate::ui::styles::{format_file_size, ColorScheme, ColumnConfig, Layout};
 pub fn draw_file_list(
     d: &mut RaylibDrawHandle,
     files: &[FileEntry],
+    opacities: &[f32],
     selection: &Selection,
     scroll_offset: usize,
     layout: &Layout,
@@ -22,7 +24,7 @@ pub fn draw_file_list(
     let visible_rows = layout.visible_rows();
 
     draw_list_background(d, list_y, visible_rows, layout, colors);
-    draw_file_entries(d, files, selection, scroll_offset, list_y, visible_rows, layout, colors, hover_index);
+    draw_file_entries(d, files, opacities, selection, scroll_offset, list_y, visible_rows, layout, colors, hover_index);
     draw_list_border(d, list_y, visible_rows, layout, colors);
 }
 
@@ -47,6 +49,7 @@ fn draw_list_background(
 fn draw_file_entries(
     d: &mut RaylibDrawHandle,
     files: &[FileEntry],
+    opacities: &[f32],
     selection: &Selection,
     scroll_offset: usize,
     list_y: i32,
@@ -57,8 +60,9 @@ fn draw_file_entries(
 ) {
     let columns = ColumnConfig::new(layout);
 
-    for (i, entry) in files
+    for (i, (entry, opacity)) in files
         .iter()
+        .zip(opacities.iter())
         .enumerate()
         .skip(scroll_offset)
         .take(visible_rows)
@@ -69,8 +73,8 @@ fn draw_file_entries(
         let is_hovered = hover_index == Some(idx);
 
         draw_row_background(d, row_y, is_selected, is_hovered, layout, colors);
-        draw_file_icon(d, entry, row_y, layout, colors);
-        draw_file_info(d, entry, &columns, row_y, is_selected, colors);
+        draw_file_icon_with_opacity(d, entry, row_y, layout, colors, *opacity);
+        draw_file_info_with_opacity(d, entry, &columns, row_y, is_selected, colors, *opacity);
     }
 }
 
@@ -110,21 +114,43 @@ fn draw_file_icon(
     layout: &Layout,
     colors: &ColorScheme,
 ) {
+    draw_file_icon_with_opacity(d, entry, row_y, layout, colors, 1.0);
+}
+
+/// Draws the file/folder icon with opacity
+fn draw_file_icon_with_opacity(
+    d: &mut RaylibDrawHandle,
+    entry: &FileEntry,
+    row_y: i32,
+    layout: &Layout,
+    colors: &ColorScheme,
+    opacity: f32,
+) {
     let icon_x = layout.padding + 8;
     let icon_y = row_y + (layout.row_height - layout.icon_size) / 2;
 
     if entry.is_dir {
-        draw_folder_icon(d, icon_x, icon_y, colors);
+        draw_folder_icon_with_opacity(d, icon_x, icon_y, colors, opacity);
     } else {
-        draw_file_icon_by_extension(d, icon_x, icon_y, &entry.extension, colors);
+        draw_file_icon_by_extension_with_opacity(d, icon_x, icon_y, &entry.extension, colors, opacity);
     }
 }
 
 /// Draws a folder icon
 fn draw_folder_icon(d: &mut RaylibDrawHandle, x: i32, y: i32, colors: &ColorScheme) {
-    d.draw_rectangle(x + 2, y + 4, 16, 12, colors.folder_color);
-    d.draw_rectangle(x + 2, y + 2, 8, 4, Color::new(234, 179, 8, 255)); // Tab
-    d.draw_rectangle_lines(x + 2, y + 4, 16, 12, Color::new(180, 130, 0, 255));
+    draw_folder_icon_with_opacity(d, x, y, colors, 1.0);
+}
+
+/// Draws a folder icon with opacity
+fn draw_folder_icon_with_opacity(d: &mut RaylibDrawHandle, x: i32, y: i32, colors: &ColorScheme, opacity: f32) {
+    let alpha = (255.0 * opacity) as u8;
+    let folder_color = Color::new(colors.folder_color.r, colors.folder_color.g, colors.folder_color.b, alpha);
+    let tab_color = Color::new(234, 179, 8, alpha);
+    let outline_color = Color::new(180, 130, 0, alpha);
+
+    d.draw_rectangle(x + 2, y + 4, 16, 12, folder_color);
+    d.draw_rectangle(x + 2, y + 2, 8, 4, tab_color); // Tab
+    d.draw_rectangle_lines(x + 2, y + 4, 16, 12, outline_color);
 }
 
 /// Draws a file icon with color based on extension
@@ -135,11 +161,27 @@ fn draw_file_icon_by_extension(
     extension: &str,
     colors: &ColorScheme,
 ) {
-    let file_color = get_file_color_by_extension(extension, colors);
+    draw_file_icon_by_extension_with_opacity(d, x, y, extension, colors, 1.0);
+}
 
-    d.draw_rectangle(x + 4, y + 2, 12, 16, file_color);
-    d.draw_rectangle(x + 4, y + 2, 12, 3, Color::WHITE); // Top highlight
-    d.draw_rectangle_lines(x + 4, y + 2, 12, 16, Color::new(156, 163, 175, 255));
+/// Draws a file icon with color based on extension and opacity
+fn draw_file_icon_by_extension_with_opacity(
+    d: &mut RaylibDrawHandle,
+    x: i32,
+    y: i32,
+    extension: &str,
+    colors: &ColorScheme,
+    opacity: f32,
+) {
+    let file_color = get_file_color_by_extension(extension, colors);
+    let alpha = (255.0 * opacity) as u8;
+    let adjusted_file_color = Color::new(file_color.r, file_color.g, file_color.b, alpha);
+    let white_highlight = Color::new(255, 255, 255, alpha);
+    let outline_color = Color::new(156, 163, 175, alpha);
+
+    d.draw_rectangle(x + 4, y + 2, 12, 16, adjusted_file_color);
+    d.draw_rectangle(x + 4, y + 2, 12, 3, white_highlight); // Top highlight
+    d.draw_rectangle_lines(x + 4, y + 2, 12, 16, outline_color);
 }
 
 /// Gets the color for a file based on its extension
@@ -164,18 +206,37 @@ fn draw_file_info(
     is_selected: bool,
     colors: &ColorScheme,
 ) {
+    draw_file_info_with_opacity(d, entry, columns, row_y, is_selected, colors, 1.0);
+}
+
+/// Draws file information with opacity
+fn draw_file_info_with_opacity(
+    d: &mut RaylibDrawHandle,
+    entry: &FileEntry,
+    columns: &ColumnConfig,
+    row_y: i32,
+    is_selected: bool,
+    colors: &ColorScheme,
+    opacity: f32,
+) {
     let text_y = row_y + 6;
+    let alpha = (255.0 * opacity) as u8;
 
     // Name
-    let name_color = if is_selected {
+    let mut name_color = if is_selected {
         colors.primary
     } else {
         colors.on_surface
     };
+    name_color.a = alpha;
+
     let name_display = truncate_text(&entry.name, columns.name_width - 8, 16);
     d.draw_text(&name_display, columns.name_x, text_y, 16, name_color);
 
     // Type
+    let mut type_color = colors.on_surface_variant;
+    type_color.a = alpha;
+
     let type_str = if entry.is_dir {
         "Folder"
     } else if entry.extension.is_empty() {
@@ -183,7 +244,7 @@ fn draw_file_info(
     } else {
         &entry.extension.to_uppercase()
     };
-    d.draw_text(type_str, columns.type_x, text_y, 16, colors.on_surface_variant);
+    d.draw_text(type_str, columns.type_x, text_y, 16, type_color);
 
     // Size
     let size_str = if entry.is_dir {
@@ -191,12 +252,91 @@ fn draw_file_info(
     } else {
         format_file_size(entry.size)
     };
-    d.draw_text(&size_str, columns.size_x, text_y, 16, colors.on_surface_variant);
+    d.draw_text(&size_str, columns.size_x, text_y, 16, type_color);
 
-    // Modified date (placeholder)
-    if entry.modified.is_some() {
-        d.draw_text("Today", columns.modified_x, text_y, 16, colors.on_surface_variant);
+    // Modified date
+    let modified_text = if let Some(modified_time) = &entry.modified {
+        format_modified_date(modified_time)
+    } else {
+        "-".to_string()
+    };
+    let modified_display = truncate_text(&modified_text, columns.modified_width - 8, 16);
+    d.draw_text(&modified_display, columns.modified_x, text_y, 16, type_color);
+}
+
+/// Formats a SystemTime into a readable date string
+fn format_modified_date(system_time: &SystemTime) -> String {
+
+    // Get current time for comparison
+    let now = SystemTime::now();
+
+    match now.duration_since(*system_time) {
+        Ok(duration) => {
+            let secs = duration.as_secs();
+
+            // Show relative time for recent files
+            if secs < 60 {
+                "Just now".to_string()
+            } else if secs < 3600 {
+                let minutes = secs / 60;
+                format!("{}m ago", minutes)
+            } else if secs < 86400 {
+                let hours = secs / 3600;
+                format!("{}h ago", hours)
+            } else if secs < 604800 { // 7 days
+                let days = secs / 86400;
+                format!("{}d ago", days)
+            } else {
+                // For older files, show date
+                // Convert to local time components (simplified)
+                if let Ok(duration_since_epoch) = system_time.duration_since(UNIX_EPOCH) {
+                    let total_days = duration_since_epoch.as_secs() / 86400;
+
+                    // Calculate approximate date (this is a rough calculation)
+                    // In a real application, you'd use a proper date/time library
+                    let mut year = 1970;
+                    let mut remaining_days = total_days;
+
+                    // Subtract days for each year (accounting for leap years roughly)
+                    while remaining_days >= 365 {
+                        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+                        if remaining_days >= days_in_year {
+                            remaining_days -= days_in_year;
+                            year += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // Calculate month and day (rough approximation)
+                    let month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                    let mut month = 1;
+                    let mut day = remaining_days + 1; // +1 because days are 1-indexed
+
+                    for (i, &days_in_month) in month_days.iter().enumerate() {
+                        if day <= days_in_month {
+                            month = i + 1;
+                            break;
+                        }
+                        day -= days_in_month;
+                    }
+
+                    format!("{:04}-{:02}-{:02}", year, month, day as u32)
+                } else {
+                    "Unknown".to_string()
+                }
+            }
+        }
+        Err(_) => {
+            // File is in the future (shouldn't happen normally)
+            "Future".to_string()
+        }
     }
+}
+
+/// Check if a year is a leap year (simplified)
+fn is_leap_year(year: u64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 /// Draws the border around the file list

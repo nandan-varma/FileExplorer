@@ -6,17 +6,19 @@ struct StatusBarView: View {
         HStack {
             // Breadcrumb
             HStack(spacing: 4) {
-                ForEach(Array(viewModel.breadcrumb.enumerated()), id: \.element) { idx, segment in
-                    HStack(spacing: 0) {
-                        Button(action: { viewModel.navigateToBreadcrumb(index: idx) }) {
-                            Text(segment)
-                                .foregroundColor(.gray)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        if idx < viewModel.breadcrumb.count - 1 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.gray)
+                if !viewModel.breadcrumb.isEmpty {
+                    ForEach(Array(viewModel.breadcrumb.enumerated()), id: \.offset) { idx, segment in
+                        HStack(spacing: 0) {
+                            Button(action: { viewModel.navigateToBreadcrumb(index: idx) }) {
+                                Text(segment)
+                                    .foregroundColor(.gray)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            if idx < viewModel.breadcrumb.count - 1 {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.gray)
+                            }
                         }
                     }
                 }
@@ -24,7 +26,7 @@ struct StatusBarView: View {
             Spacer()
             // Item count & storage
             VStack(spacing: 2) {
-                Text("314 items")
+                Text("\(viewModel.filteredFiles.count) items")
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                 Text("63.38 GB available")

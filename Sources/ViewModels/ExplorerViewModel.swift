@@ -2,6 +2,13 @@ import Foundation
 import SwiftUI
 
 class ExplorerViewModel: ObservableObject {
+    // Returns the file URL for a given FileItem, if it exists in the current folder
+    func fileURL(for file: FileItem) -> URL? {
+        let fm = FileManager.default
+        let folderURL = currentFolderURL
+        let filePath = folderURL.appendingPathComponent(file.name)
+        return fm.fileExists(atPath: filePath.path) ? filePath : nil
+    }
 
         // Toolbar actions (stubs)
         func quickLook() { /* TODO: Implement Quick Look */ }

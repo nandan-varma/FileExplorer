@@ -1,19 +1,18 @@
+
 import AppKit
+import FullDiskAccess
 
 @MainActor
 func requestFullDiskAccessIfNeeded() {
-    let openPanel = NSOpenPanel()
-    openPanel.message = "Please grant access to your home folder to enable file browsing."
-    openPanel.prompt = "Grant Access"
-    openPanel.canChooseFiles = false
-    openPanel.canChooseDirectories = true
-    openPanel.allowsMultipleSelection = false
-    openPanel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-    openPanel.begin { response in
-        if response == .OK, let url = openPanel.url {
-            // Start accessing security-scoped resource
-            _ = url.startAccessingSecurityScopedResource()
-            // Store bookmark for future launches if needed
-        }
+    if !FullDiskAccess.isGranted {
+        FullDiskAccess.promptIfNotGranted(
+            title: "Enable Full Disk Access for Explorer",
+            message: "Explorer requires Full Disk Access to browse all folders and files on your Mac.",
+            settingsButtonTitle: "Open Settings",
+            skipButtonTitle: "Later",
+            skipHandler: { print("User skipped permission screen!") },
+            canBeSuppressed: false,
+            icon: nil
+        )
     }
 }

@@ -3,47 +3,62 @@ import SwiftUI
 
 struct SidebarView: View {
     @ObservedObject var viewModel: ExplorerViewModel
+    @State private var isCollapsed: Bool = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Recents/Shared
-            Group {
-                SidebarSectionHeader(title: " ")
-                SidebarItem(icon: "clock", label: "Recents", selected: viewModel.selectedSidebarItem == .recents) {
-                    viewModel.selectSidebarItem(.recents)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Collapse/Expand Button
+                Button(action: {
+                    withAnimation {
+                        isCollapsed.toggle()
+                    }
+                }) {
+                    Image(systemName: isCollapsed ? "arrow.right.circle" : "arrow.left.circle")
+                        .foregroundColor(.blue)
+                        .padding(8)
                 }
-                SidebarItem(icon: "person.2", label: "Shared", selected: viewModel.selectedSidebarItem == .shared) {
-                    viewModel.selectSidebarItem(.shared)
+                .buttonStyle(PlainButtonStyle())
+                // Sidebar Content
+                if !isCollapsed {
+                    Group {
+                        SidebarSectionHeader(title: " ")
+                        SidebarItem(icon: "clock", label: "Recents", selected: viewModel.selectedSidebarItem == .recents) {
+                            viewModel.selectSidebarItem(.recents)
+                        }
+                        SidebarItem(icon: "person.2", label: "Shared", selected: viewModel.selectedSidebarItem == .shared) {
+                            viewModel.selectSidebarItem(.shared)
+                        }
+                    }
+                    SidebarSectionHeader(title: "FAVORITES")
+                    ForEach([SidebarItemType.applications, .documents, .desktop, .downloads, .pictures], id: \ .self) { item in
+                        SidebarItem(icon: "folder", label: item.label, selected: viewModel.selectedSidebarItem == item) {
+                            viewModel.selectSidebarItem(item)
+                        }
+                    }
+                    SidebarSectionHeader(title: " ")
+                    SidebarItem(icon: "house", label: SidebarItemType.nandan.label, selected: viewModel.selectedSidebarItem == .nandan) {
+                        viewModel.selectSidebarItem(.nandan)
+                    }
+                    SidebarItem(icon: "folder", label: SidebarItemType.dev.label, selected: viewModel.selectedSidebarItem == .dev) {
+                        viewModel.selectSidebarItem(.dev)
+                    }
+                    SidebarSectionHeader(title: "LOCATIONS")
+                    SidebarItem(icon: "icloud", label: SidebarItemType.icloud.label, selected: viewModel.selectedSidebarItem == .icloud) {
+                        viewModel.selectSidebarItem(.icloud)
+                    }
+                    SidebarItem(icon: "house", label: SidebarItemType.home.label, selected: viewModel.selectedSidebarItem == .home) {
+                        viewModel.selectSidebarItem(.home)
+                    }
+                    SidebarItem(icon: "laptopcomputer", label: SidebarItemType.macbook.label, selected: viewModel.selectedSidebarItem == .macbook) {
+                        viewModel.selectSidebarItem(.macbook)
+                    }
+                    Spacer()
                 }
             }
-            // Favorites
-            SidebarSectionHeader(title: "FAVORITES")
-            ForEach([SidebarItemType.applications, .documents, .desktop, .downloads, .pictures], id: \.self) { item in
-                SidebarItem(icon: "folder", label: item.label, selected: viewModel.selectedSidebarItem == item) {
-                    viewModel.selectSidebarItem(item)
-                }
-            }
-            // User Home
-            SidebarSectionHeader(title: " ")
-            SidebarItem(icon: "house", label: SidebarItemType.nandan.label, selected: viewModel.selectedSidebarItem == .nandan) {
-                viewModel.selectSidebarItem(.nandan)
-            }
-            SidebarItem(icon: "folder", label: SidebarItemType.dev.label, selected: viewModel.selectedSidebarItem == .dev) {
-                viewModel.selectSidebarItem(.dev)
-            }
-            // Locations
-            SidebarSectionHeader(title: "LOCATIONS")
-            SidebarItem(icon: "icloud", label: SidebarItemType.icloud.label, selected: viewModel.selectedSidebarItem == .icloud) {
-                viewModel.selectSidebarItem(.icloud)
-            }
-            SidebarItem(icon: "house", label: SidebarItemType.home.label, selected: viewModel.selectedSidebarItem == .home) {
-                viewModel.selectSidebarItem(.home)
-            }
-            SidebarItem(icon: "laptopcomputer", label: SidebarItemType.macbook.label, selected: viewModel.selectedSidebarItem == .macbook) {
-                viewModel.selectSidebarItem(.macbook)
-            }
-            Spacer()
+            .frame(width: isCollapsed ? 36 : 240)
+            .background(Color(.windowBackgroundColor))
+            .animation(.easeInOut, value: isCollapsed)
         }
-        .frame(minWidth: 200, idealWidth: 240, maxWidth: 260)
     }
 }
 

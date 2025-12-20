@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 
 struct FileItem: Identifiable, Equatable {
     let id = UUID()
@@ -31,6 +32,7 @@ let sampleFiles: [FileItem] = [
 struct ContentAreaView: View {
     @ObservedObject var viewModel: ExplorerViewModel
     @State private var hoveredFile: FileItem.ID? = nil
+    @State private var quickLookURL: URL? = nil
     var body: some View {
         let columns: [GridItem] = [
             GridItem(.fixed(24)), // Icon
@@ -83,14 +85,18 @@ struct ContentAreaView: View {
                             hoveredFile = hovering ? file.id : nil
                         }
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            if file.isFolder {
-                                // TODO: navigate into folder
+                            if !file.isFolder {
+                                if let url = viewModel.fileURL(for: file) {
+                                    quickLookURL = url
+                                }
                             }
                         })
                     }
                 }
             }
         }
+        // Quick Look Preview modifier
+        .quickLookPreview($quickLookURL)
     }
 }
 

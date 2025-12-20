@@ -1,36 +1,342 @@
 import Foundation
 import SwiftUI
+import AppKit
 
 class ExplorerViewModel: ObservableObject {
-    // Returns the file URL for a given FileItem, if it exists in the current folder
+    // MARK: - File list state (inlined from SearchService)
+    private var _files: [FileItem] = []
+    private var _filteredFiles: [FileItem] = []
+
+    // MARK: - Navigation state (inlined from NavigationService)
+    private var _navigationHistory: [URL] = []
+    private var _currentHistoryIndex: Int = -1
+    private var _currentFolderURL: URL = FileManager.default.homeDirectoryForCurrentUser
+    private var _breadcrumb: [String] = ["Macintosh HD", "Users", "nandan", "Downloads"]
+
+    // MARK: - Selection state (inlined from SelectionService)
+    private var _selectedFile: FileItem.ID? = nil
+    private var _selectedFiles: Set<FileItem.ID> = []
+
+    // MARK: - Sorting state (inlined from SortingService)
+    private var _sortColumn: FileSortColumn = .dateAdded
+    private var _sortAscending: Bool = false
+
+    // MARK: - Search state (inlined from SearchService)
+    private var _searchText: String = ""
+    private var _searchDebounceTimer: Timer?
+
+    // MARK: - View state (inlined from ViewStateService)
+    private var _viewMode: ViewMode = .list
+    private var _showHiddenFiles: Bool = false
+    private var _iconSize: Double = 64
+
+    // MARK: - Error state (inlined from ErrorHandlingService)
+    private var _errorMessage: String? = nil
+    private var _showErrorAlert: Bool = false
+
+    // MARK: - Published Properties
+    @Published var quickLookURL: URL? = nil
+    @Published var renamingFileId: FileItem.ID? = nil
+    @Published var renameText: String = ""
+    @Published var selectedSidebarItem: SidebarItemType = .downloads
+
+    // MARK: - Computed Properties
+    var files: [FileItem] {
+        get { _files }
+        set {
+            _files = newValue
+            updateFilteredFiles()
+        }
+    }
+
+    var filteredFiles: [FileItem] {
+        _filteredFiles
+    }
+
+    var currentFolderURL: URL {
+        _currentFolderURL
+    }
+
+    var canGoBack: Bool {
+        _currentHistoryIndex > 0
+    }
+
+    var canGoForward: Bool {
+        _currentHistoryIndex < _navigationHistory.count - 1
+    }
+
+    var breadcrumb: [String] {
+        _breadcrumb
+    }
+
+    var viewMode: ViewMode {
+        get { _viewMode }
+        set { _viewMode = newValue }
+    }
+
+    var iconSize: Double {
+        get { _iconSize }
+        set { _iconSize = newValue }
+    }
+
+    var showHiddenFiles: Bool {
+        get { _showHiddenFiles }
+        set { _showHiddenFiles = newValue }
+    }
+
+    var sortColumn: FileSortColumn {
+        get { _sortColumn }
+        set { _sortColumn = newValue }
+    }
+
+    var sortAscending: Bool {
+        get { _sortAscending }
+        set { _sortAscending = newValue }
+    }
+
+    var searchText: String {
+        get { _searchText }
+        set {
+            _searchText = newValue
+            updateSearch(newValue)
+        }
+    }
+
+    var selectedFile: FileItem.ID? {
+        _selectedFile
+    }
+
+    var selectedFiles: Set<FileItem.ID> {
+        _selectedFiles
+    }
+
+    var errorMessage: String? {
+        get { _errorMessage }
+        set { _errorMessage = newValue }
+    }
+
+    var showErrorAlert: Bool {
+        get { _showErrorAlert }
+        set { _showErrorAlert = newValue }
+    }
+
+    // MARK: - Initialization
+    init() {
+        // Start with Downloads folder as initial location
+        let downloadsURL = urlForSidebarItem(.downloads)
+        _currentFolderURL = downloadsURL
+        selectedSidebarItem = .downloads
+
+        // Initialize navigation history with the downloads folder
+        _navigationHistory = [downloadsURL]
+        _currentHistoryIndex = 0
+        updateBreadcrumb(for: downloadsURL)
+        loadFiles(at: downloadsURL)
+    }
+
+    // MARK: - File Operations
     func fileURL(for file: FileItem) -> URL? {
+        let filePath = currentFolderURL.appendingPathComponent(file.name)
         let fm = FileManager.default
-        let folderURL = currentFolderURL
-        let filePath = folderURL.appendingPathComponent(file.name)
         return fm.fileExists(atPath: filePath.path) ? filePath : nil
     }
 
-        // Toolbar actions (stubs)
-        func quickLook() { /* TODO: Implement Quick Look */ }
-        func newTab() { /* TODO: Implement New Tab */ }
-        func openVSCode() { /* TODO: Implement VS Code integration */ }
-        func trash() { /* TODO: Implement Trash */ }
-        func share() { /* TODO: Implement Share */ }
-        func viewOptions() { /* TODO: Implement View Options */ }
-        func toggleViewMode() {
-            viewMode = viewMode == .list ? .grid : .list
+    func loadFiles(at url: URL) {
+        // Perform file operations on background thread to avoid blocking UI
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let fm = FileManager.default
+            do {
+                let options: FileManager.DirectoryEnumerationOptions = self._showHiddenFiles ? [] : [.skipsHiddenFiles]
+                let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: options)
+
+                let fileItems = contents.map { fileURL in
+                    let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+                    let isFolder = resourceValues?.isDirectory ?? false
+                    let sizeBytes = resourceValues?.fileSize.map { Int64($0) }
+                    let size = isFolder ? nil : sizeBytes.flatMap { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+                    let kind = isFolder ? "Folder" : fileURL.pathExtension.uppercased()
+                    let dateModified = resourceValues?.contentModificationDate
+                    let dateAdded = dateModified.map { Self.dateFormatter.string(from: $0) }
+                    return FileItem(
+                        name: fileURL.lastPathComponent,
+                        size: size,
+                        sizeBytes: sizeBytes,
+                        kind: kind,
+                        dateAdded: dateAdded,
+                        dateModified: dateModified,
+                        isFolder: isFolder,
+                        expanded: false
+                    )
+                }
+
+                // Update UI on main thread
+                DispatchQueue.main.async {
+                    self.files = fileItems
+                }
+            } catch let error as NSError {
+                // Update UI on main thread
+                DispatchQueue.main.async {
+                    self.files = []
+                    var errorMsg = "Unable to load folder contents."
+                    if error.domain == NSCocoaErrorDomain {
+                        switch error.code {
+                        case NSFileReadNoPermissionError:
+                            errorMsg = "Permission denied. Please grant full disk access in System Settings > Privacy & Security."
+                        case NSFileReadNoSuchFileError:
+                            errorMsg = "The folder no longer exists."
+                        case NSFileReadInvalidFileNameError:
+                            errorMsg = "Invalid folder path."
+                        default:
+                            errorMsg = "File system error: \(error.localizedDescription)"
+                        }
+                    }
+                    self.showError(errorMsg)
+                }
+            }
         }
-        func moreOptions() {
-            // This will be handled by the UI layer with a menu
+    }
+
+    // MARK: - Navigation
+    func navigateToURL(_ url: URL) {
+        guard isValidFileURL(url) else {
+            showError("Invalid or inaccessible path.")
+            return
         }
 
-    // File operations
+        // If we're not at the end of history, truncate forward history
+        if _currentHistoryIndex < _navigationHistory.count - 1 {
+            _navigationHistory = Array(_navigationHistory.prefix(_currentHistoryIndex + 1))
+        }
+
+        // Add new URL to history
+        _navigationHistory.append(url)
+        _currentHistoryIndex = _navigationHistory.count - 1
+
+        // Update current folder and load files
+        _currentFolderURL = url
+        loadFiles(at: url)
+        updateNavigationState()
+        updateBreadcrumb(for: url)
+    }
+
+    func goBack() {
+        guard canGoBack else { return }
+        _currentHistoryIndex -= 1
+        let url = _navigationHistory[_currentHistoryIndex]
+        _currentFolderURL = url
+        loadFiles(at: url)
+        updateNavigationState()
+        updateBreadcrumb(for: url)
+    }
+
+    func goForward() {
+        guard canGoForward else { return }
+        _currentHistoryIndex += 1
+        let url = _navigationHistory[_currentHistoryIndex]
+        _currentFolderURL = url
+        loadFiles(at: url)
+        updateNavigationState()
+        updateBreadcrumb(for: url)
+    }
+
+    func navigateToBreadcrumb(index: Int) {
+        _breadcrumb = Array(_breadcrumb.prefix(index + 1))
+        // This would typically trigger a navigation to the corresponding URL
+        // For now, we'll just update the breadcrumb display
+    }
+
+    // MARK: - Sidebar
+    func selectSidebarItem(_ item: SidebarItemType) {
+        selectedSidebarItem = item
+        // Update files for selected item
+        let url = urlForSidebarItem(item)
+        navigateToURL(url)
+    }
+
+    // MARK: - File Selection
+    func selectFile(_ file: FileItem) {
+        _selectedFile = file.id
+        _selectedFiles = [file.id]
+    }
+
+    func selectAdditionalFile(_ file: FileItem) {
+        _selectedFiles.insert(file.id)
+        if _selectedFile == nil {
+            _selectedFile = file.id
+        }
+    }
+
+    func deselectFile(_ file: FileItem) {
+        _selectedFiles.remove(file.id)
+        if _selectedFile == file.id {
+            _selectedFile = _selectedFiles.first
+        }
+    }
+
+    func clearSelection() {
+        _selectedFile = nil
+        _selectedFiles.removeAll()
+    }
+
+    func selectNextFile() {
+        guard !filteredFiles.isEmpty else { return }
+
+        let currentIndex: Int
+        if let selectedId = _selectedFile,
+           let index = filteredFiles.firstIndex(where: { $0.id == selectedId }) {
+            currentIndex = index
+        } else if !filteredFiles.isEmpty {
+            currentIndex = 0
+        } else {
+            return
+        }
+
+        let nextIndex = (currentIndex + 1) % filteredFiles.count
+        let nextFile = filteredFiles[nextIndex]
+        selectFile(nextFile)
+    }
+
+    func selectPreviousFile() {
+        guard !filteredFiles.isEmpty else { return }
+
+        let currentIndex: Int
+        if let selectedId = _selectedFile,
+           let index = filteredFiles.firstIndex(where: { $0.id == selectedId }) {
+            currentIndex = index
+        } else if !filteredFiles.isEmpty {
+            currentIndex = filteredFiles.count - 1
+        } else {
+            return
+        }
+
+        let prevIndex = currentIndex == 0 ? filteredFiles.count - 1 : currentIndex - 1
+        let prevFile = filteredFiles[prevIndex]
+        selectFile(prevFile)
+    }
+
+    // MARK: - File Operations
+    func openFile(_ file: FileItem) {
+        guard let url = fileURL(for: file) else {
+            showError("Unable to access file.")
+            return
+        }
+
+        if file.isFolder {
+            navigateToURL(url)
+        } else {
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: url.path) else {
+                showError("File no longer exists.")
+                return
+            }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func copySelectedFiles() {
         let urls = selectedFileURLs()
-        if !urls.isEmpty {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.writeObjects(urls as [NSPasteboardWriting])
-        }
+        copyFilesToPasteboard(urls)
     }
 
     func duplicateSelectedFiles() {
@@ -49,12 +355,17 @@ class ExplorerViewModel: ObservableObject {
         }
     }
 
-    func showGetInfo() {
+    func trash() {
         let urls = selectedFileURLs()
-        if let firstURL = urls.first {
-            // On macOS, we can use NSWorkspace to show Get Info
-            NSWorkspace.shared.selectFile(firstURL.path, inFileViewerRootedAtPath: firstURL.deletingLastPathComponent().path)
+        for url in urls {
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                showError("Failed to move to trash: \(error.localizedDescription)")
+            }
         }
+        loadFiles(at: currentFolderURL) // Refresh the view
+        clearSelection()
     }
 
     func compressSelectedFiles() {
@@ -94,61 +405,10 @@ class ExplorerViewModel: ObservableObject {
         }
     }
 
-    private func selectedFileURLs() -> [URL] {
-        return selectedFiles.compactMap { selectedFileId in
-            filteredFiles.first(where: { $0.id == selectedFileId }).flatMap { fileURL(for: $0) }
-        }
-    }
-
-    private func generateDuplicateName(for url: URL) -> String {
-        let fileName = url.lastPathComponent
-        let baseName = url.deletingPathExtension().lastPathComponent
-        let fileExtension = url.pathExtension
-
-        let fileManager = FileManager.default
-        var duplicateName = fileName
-        var counter = 1
-
-        while fileManager.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent(duplicateName).path) {
-            if fileExtension.isEmpty {
-                duplicateName = "\(baseName) \(counter)"
-            } else {
-                duplicateName = "\(baseName) \(counter).\(fileExtension)"
-            }
-            counter += 1
-        }
-
-        return duplicateName
-    }
-
-    func startRenaming(_ file: FileItem) {
-        guard let url = fileURL(for: file) else { return }
-        renamingFileId = file.id
-        renameText = file.name
-    }
-
-    func cancelRenaming() {
-        renamingFileId = nil
-        renameText = ""
-    }
-
-    func confirmRename() {
-        guard let fileId = renamingFileId,
-              let file = filteredFiles.first(where: { $0.id == fileId }),
-              let oldURL = fileURL(for: file),
-              !renameText.isEmpty && renameText != file.name else {
-            cancelRenaming()
-            return
-        }
-
-        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(renameText)
-
-        do {
-            try FileManager.default.moveItem(at: oldURL, to: newURL)
-            loadFiles(at: currentFolderURL) // Refresh the view
-            cancelRenaming()
-        } catch {
-            showError("Failed to rename file: \(error.localizedDescription)")
+    func showGetInfo() {
+        let urls = selectedFileURLs()
+        if let firstURL = urls.first {
+            NSWorkspace.shared.selectFile(firstURL.path, inFileViewerRootedAtPath: firstURL.deletingLastPathComponent().path)
         }
     }
 
@@ -205,66 +465,77 @@ class ExplorerViewModel: ObservableObject {
         }
     }
 
-    // Sidebar
-    @Published var selectedSidebarItem: SidebarItemType = .downloads
-    @Published var sidebarItems: [SidebarItemType] = SidebarItemType.allCases
-    
-    // Navigation History (URL-based)
-    @Published var navigationHistory: [URL] = []
-    @Published var currentHistoryIndex: Int = -1
-    @Published var canGoBack: Bool = false
-    @Published var canGoForward: Bool = false
-    
-    // File list
-    @Published var files: [FileItem] = []
-    @Published var filteredFiles: [FileItem] = []
-    @Published var currentFolderURL: URL = FileManager.default.homeDirectoryForCurrentUser
-    @Published var selectedFile: FileItem.ID? = nil
-    @Published var selectedFiles: Set<FileItem.ID> = []
-    @Published var sortColumn: FileSortColumn = .dateAdded
-    @Published var sortAscending: Bool = false
+    // MARK: - Renaming
+    func startRenaming(_ file: FileItem) {
+        guard fileURL(for: file) != nil else { return }
+        renamingFileId = file.id
+        renameText = file.name
+    }
 
-    // Search
-    @Published var searchText: String = ""
-    private var searchDebounceTimer: Timer?
+    func cancelRenaming() {
+        renamingFileId = nil
+        renameText = ""
+    }
 
-    // Quick Look
-    @Published var quickLookURL: URL? = nil
+    func confirmRename() {
+        guard let fileId = renamingFileId,
+              let file = filteredFiles.first(where: { $0.id == fileId }),
+              let oldURL = fileURL(for: file),
+              !renameText.isEmpty && renameText != file.name else {
+            cancelRenaming()
+            return
+        }
 
-    // File operations
-    @Published var renamingFileId: FileItem.ID? = nil
-    @Published var renameText: String = ""
+        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(renameText)
 
-    // View options
-    @Published var viewMode: ViewMode = .list
-    @Published var showHiddenFiles: Bool = false
-    @Published var iconSize: Double = 64
+        do {
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            loadFiles(at: currentFolderURL) // Refresh the view
+            cancelRenaming()
+        } catch {
+            showError("Failed to rename file: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Search & Sorting
+    func updateSearch(_ text: String) {
+        _searchText = text
+        updateFilteredFiles()
+    }
+
+    func sort(by column: FileSortColumn) {
+        if _sortColumn == column {
+            _sortAscending.toggle()
+        } else {
+            _sortColumn = column
+            _sortAscending = true
+        }
+        applySorting()
+        // Force UI update since filteredFiles is computed
+        objectWillChange.send()
+    }
+
+    // MARK: - View State
+    func toggleViewMode() {
+        _viewMode = _viewMode == .list ? .grid : .list
+    }
 
     func toggleHiddenFiles(_ show: Bool) {
-        showHiddenFiles = show
+        _showHiddenFiles = show
         // Reload current directory to apply filter
         loadFiles(at: currentFolderURL)
     }
 
     func setIconSize(_ size: Double) {
-        iconSize = size
+        _iconSize = size
     }
 
-    // Error handling
-    @Published var errorMessage: String? = nil
-    @Published var showErrorAlert: Bool = false
+    // MARK: - Toolbar Actions (stubs)
+    func quickLook() { /* TODO: Implement Quick Look */ }
+    func newTab() { /* TODO: Implement New Tab */ }
+    func openVSCode() { /* TODO: Implement VS Code integration */ }
 
-    // Breadcrumb
-    @Published var breadcrumb: [String] = ["Macintosh HD", "Users", "nandan", "Downloads"]
-    
-    // MARK: - Sidebar
-    func selectSidebarItem(_ item: SidebarItemType) {
-        selectedSidebarItem = item
-        // Update files for selected item
-        let url = urlForSidebarItem(item)
-        navigateToURL(url)
-    }
-
+    // MARK: - Private Methods
     private func urlForSidebarItem(_ item: SidebarItemType) -> URL {
         let fm = FileManager.default
         switch item {
@@ -291,220 +562,37 @@ class ExplorerViewModel: ObservableObject {
         }
     }
 
-    private func showError(_ message: String) {
-        errorMessage = message
-        showErrorAlert = true
-    }
-
-    private func isValidFileURL(_ url: URL) -> Bool {
-        // Basic validation: must be file URL, not contain .. for path traversal
-        guard url.scheme == "file" else { return false }
-
-        let path = url.path
-        // Check for path traversal attempts
-        guard !path.contains("../") && !path.contains("..\\") else { return false }
-
-        // Check if the path exists and is a directory
-        let fm = FileManager.default
-        var isDirectory: ObjCBool = false
-        let exists = fm.fileExists(atPath: path, isDirectory: &isDirectory)
-        return exists && isDirectory.boolValue
-    }
-
-    func loadFiles(at url: URL) {
-        // Perform file operations on background thread to avoid blocking UI
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            let fm = FileManager.default
-            do {
-                let options: FileManager.DirectoryEnumerationOptions = showHiddenFiles ? [] : [.skipsHiddenFiles]
-                let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: options)
-
-                let fileItems = contents.map { fileURL in
-                    let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-                    let isFolder = resourceValues?.isDirectory ?? false
-                    let sizeBytes = resourceValues?.fileSize.map { Int64($0) }
-                    let size = isFolder ? nil : sizeBytes.flatMap { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
-                    let kind = isFolder ? "Folder" : fileURL.pathExtension.uppercased()
-                    let dateModified = resourceValues?.contentModificationDate
-                    let dateAdded = dateModified.map { Self.dateFormatter.string(from: $0) }
-                    return FileItem(
-                        name: fileURL.lastPathComponent,
-                        size: size,
-                        sizeBytes: sizeBytes,
-                        kind: kind,
-                        dateAdded: dateAdded,
-                        dateModified: dateModified,
-                        isFolder: isFolder,
-                        expanded: false
-                    )
-                }
-
-                // Update UI on main thread
-                DispatchQueue.main.async {
-                    self.files = fileItems
-                    self.updateFilteredFiles()
-                }
-            } catch let error as NSError {
-                // Update UI on main thread
-                DispatchQueue.main.async {
-                    self.files = []
-                    var errorMsg = "Unable to load folder contents."
-                    if error.domain == NSCocoaErrorDomain {
-                        switch error.code {
-                        case NSFileReadNoPermissionError:
-                            errorMsg = "Permission denied. Please grant full disk access in System Settings > Privacy & Security."
-                        case NSFileReadNoSuchFileError:
-                            errorMsg = "The folder no longer exists."
-                        case NSFileReadInvalidFileNameError:
-                            errorMsg = "Invalid folder path."
-                        default:
-                            errorMsg = "File system error: \(error.localizedDescription)"
-                        }
-                    }
-                    self.showError(errorMsg)
-                }
-            }
-        }
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let df = DateFormatter()
-        df.dateStyle = .medium
-        df.timeStyle = .short
-        return df
-    }()
-
-    // Load files for initial folder on init
-    init() {
-        // Start with Downloads folder as initial location
-        let downloadsURL = urlForSidebarItem(.downloads)
-        currentFolderURL = downloadsURL
-        selectedSidebarItem = .downloads
-
-        // Initialize navigation history with the downloads folder
-        navigationHistory = [downloadsURL]
-        currentHistoryIndex = 0
-        updateNavigationState()
-        loadFiles(at: downloadsURL)
-    }
-    
-    // MARK: - Navigation
-    func navigateToURL(_ url: URL) {
-        // Validate URL before navigation
-        guard isValidFileURL(url) else {
-            showError("Invalid or inaccessible path.")
-            return
-        }
-
-        // If we're not at the end of history, truncate forward history
-        if currentHistoryIndex < navigationHistory.count - 1 {
-            navigationHistory = Array(navigationHistory.prefix(currentHistoryIndex + 1))
-        }
-
-        // Add new URL to history
-        navigationHistory.append(url)
-        currentHistoryIndex = navigationHistory.count - 1
-
-        // Update current folder and load files
-        currentFolderURL = url
-        loadFiles(at: url)
-        updateNavigationState()
-        updateBreadcrumb(for: url)
-    }
-
-    func goBack() {
-        guard canGoBack else { return }
-        currentHistoryIndex -= 1
-        let url = navigationHistory[currentHistoryIndex]
-        currentFolderURL = url
-        loadFiles(at: url)
-        updateNavigationState()
-        updateBreadcrumb(for: url)
-    }
-
-    func goForward() {
-        guard canGoForward else { return }
-        currentHistoryIndex += 1
-        let url = navigationHistory[currentHistoryIndex]
-        currentFolderURL = url
-        loadFiles(at: url)
-        updateNavigationState()
-        updateBreadcrumb(for: url)
-    }
-
-    private func updateNavigationState() {
-        canGoBack = currentHistoryIndex > 0
-        canGoForward = currentHistoryIndex < navigationHistory.count - 1
-    }
-    
-    // MARK: - File Selection
-    func selectFile(_ file: FileItem) {
-        selectedFile = file.id
-        selectedFiles = [file.id]
-    }
-
-    func openFile(_ file: FileItem) {
-        guard let url = fileURL(for: file) else {
-            showError("Unable to access file.")
-            return
-        }
-
-        if file.isFolder {
-            // Navigate into the folder
-            navigateToURL(url)
-        } else {
-            // Validate file exists before opening
-            let fm = FileManager.default
-            guard fm.fileExists(atPath: url.path) else {
-                showError("File no longer exists.")
-                return
-            }
-            // Open file with default application
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     private func updateBreadcrumb(for url: URL) {
         let pathComponents = url.pathComponents
         if pathComponents.first == "/" {
-            breadcrumb = ["Macintosh HD"] + pathComponents.dropFirst().map { $0 }
+            _breadcrumb = ["Macintosh HD"] + pathComponents.dropFirst().map { $0 }
         } else {
-            breadcrumb = pathComponents
+            _breadcrumb = pathComponents
         }
     }
 
     private func updateFilteredFiles() {
-        if searchText.isEmpty {
-            filteredFiles = files
+        if _searchText.isEmpty {
+            _filteredFiles = _files
         } else {
-            filteredFiles = files.filter { file in
-                file.name.lowercased().contains(searchText.lowercased())
+            _filteredFiles = _files.filter { file in
+                file.name.lowercased().contains(_searchText.lowercased())
             }
         }
         applySorting()
     }
 
+
+
     private func performSearch(_ text: String) {
-        searchText = text
+        _searchText = text
         updateFilteredFiles()
     }
 
-    // MARK: - Sorting
-    func sort(by column: FileSortColumn) {
-        if sortColumn == column {
-            sortAscending.toggle()
-        } else {
-            sortColumn = column
-            sortAscending = true
-        }
-        applySorting()
-    }
-
     func applySorting() {
-        filteredFiles.sort { lhs, rhs in
+        _filteredFiles.sort { lhs, rhs in
             let result: Bool
-            switch sortColumn {
+            switch _sortColumn {
             case .name:
                 result = lhs.name.lowercased() < rhs.name.lowercased()
             case .size:
@@ -522,71 +610,68 @@ class ExplorerViewModel: ObservableObject {
             case .dateAdded:
                 result = (lhs.dateModified ?? Date.distantPast) < (rhs.dateModified ?? Date.distantPast)
             }
-            return sortAscending ? result : !result
+            return _sortAscending ? result : !result
         }
     }
 
-    // MARK: - Search
-    func updateSearch(_ text: String) {
-        searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            self?.performSearch(text)
+    private func showError(_ message: String) {
+        _errorMessage = message
+        _showErrorAlert = true
+    }
+
+    private func isValidFileURL(_ url: URL) -> Bool {
+        guard url.scheme == "file" else { return false }
+
+        let path = url.path
+        guard !path.contains("../") && !path.contains("..\\") else { return false }
+
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        let exists = fm.fileExists(atPath: path, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
+    }
+
+    private func updateNavigationState() {
+        // Update computed properties by triggering objectWillChange
+        objectWillChange.send()
+    }
+
+    private func selectedFileURLs() -> [URL] {
+        return _selectedFiles.compactMap { selectedFileId in
+            filteredFiles.first(where: { $0.id == selectedFileId }).flatMap { fileURL(for: $0) }
         }
     }
 
-    func selectAdditionalFile(_ file: FileItem) {
-        selectedFiles.insert(file.id)
-        if selectedFile == nil {
-            selectedFile = file.id
+    private func generateDuplicateName(for url: URL) -> String {
+        let fileName = url.lastPathComponent
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let fileExtension = url.pathExtension
+
+        let fileManager = FileManager.default
+        var duplicateName = fileName
+        var counter = 1
+
+        while fileManager.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent(duplicateName).path) {
+            if fileExtension.isEmpty {
+                duplicateName = "\(baseName) \(counter)"
+            } else {
+                duplicateName = "\(baseName) \(counter).\(fileExtension)"
+            }
+            counter += 1
         }
+
+        return duplicateName
     }
 
-    func deselectFile(_ file: FileItem) {
-        selectedFiles.remove(file.id)
-        if selectedFile == file.id {
-            selectedFile = selectedFiles.first
-        }
+    private func copyFilesToPasteboard(_ urls: [URL]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects(urls as [NSPasteboardWriting])
     }
 
-    func clearSelection() {
-        selectedFile = nil
-        selectedFiles.removeAll()
-    }
-    
-
-    
-    // MARK: - Breadcrumb
-    func navigateToBreadcrumb(index: Int) {
-        breadcrumb = Array(breadcrumb.prefix(index + 1))
-    }
-}
-
-// Sidebar item types
-enum SidebarItemType: String, CaseIterable, Identifiable {
-    case applications, documents, desktop, downloads, pictures, recents, shared, nandan, dev, icloud, home, macbook
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .applications: return "Applications"
-        case .documents: return "Documents"
-        case .desktop: return "Desktop"
-        case .downloads: return "Downloads"
-        case .pictures: return "Pictures"
-        case .recents: return "Recents"
-        case .shared: return "Shared"
-        case .nandan: return "nandan"
-        case .dev: return "dev"
-        case .icloud: return "iCloud Drive"
-        case .home: return "nandan"
-        case .macbook: return "Nandan’s MacBook Air"
-        }
-    }
-}
-
-enum FileSortColumn {
-    case name, size, kind, dateAdded
-}
-
-enum ViewMode {
-    case list, grid
+    private static let dateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        return df
+    }()
 }

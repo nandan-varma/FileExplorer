@@ -5,35 +5,9 @@ import Quartz
 
 
 
-struct FileItem: Identifiable, Equatable {
-    let id = UUID()
-    let name: String
-    let size: String?
-    let sizeBytes: Int64?
-    let kind: String?
-    let dateAdded: String?
-    let dateModified: Date?
-    let isFolder: Bool
-    let expanded: Bool
-}
 
-let sampleFiles: [FileItem] = [
-    FileItem(name: "FallQuarterGrades.pdf", size: "81 KB", sizeBytes: 81*1024, kind: "PDF Document", dateAdded: "Today at 11:26 AM", dateModified: Date(), isFolder: false, expanded: false),
-    FileItem(name: "opencode.jsonc", size: "3 KB", sizeBytes: 3*1024, kind: "CodeEdit document", dateAdded: "Yesterday at 3:04 PM", dateModified: Date(), isFolder: false, expanded: false),
-    FileItem(name: "Aerial.saver.zip", size: "6.6 MB", sizeBytes: Int64(6.6*1024*1024), kind: "ZIP archive", dateAdded: "Yesterday at 1:07 AM", dateModified: Date(), isFolder: false, expanded: false),
-    FileItem(name: "Winter 2026 Fee Information.pdf", size: "85 KB", sizeBytes: 85*1024, kind: "PDF Document", dateAdded: "Dec 15, 2025 at 11:30 PM", dateModified: Date(), isFolder: false, expanded: false),
-    FileItem(name: "SEATTLE UNIVERSI…STRUCTIONS (1).pdf", size: "50 KB", sizeBytes: 50*1024, kind: nil, dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "Dec 15 Boarding Pass SEA to DFW.pdf", size: "550 KB", sizeBytes: 550*1024, kind: nil, dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "www.UIndex.org — Op WEBRip-WORLD", size: nil, sizeBytes: nil, kind: nil, dateAdded: nil, dateModified: nil, isFolder: true, expanded: true),
-    FileItem(name: "annotated-5110Fi…andanVarma-1.pdf", size: "265 KB", sizeBytes: 265*1024, kind: nil, dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "Blip-beta-latest.zip", size: "26.4 MB", sizeBytes: Int64(26.4*1024*1024), kind: nil, dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "answers.pdf", size: "4 KB", sizeBytes: 4*1024, kind: nil, dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "CPSC-5610-02-Finals.docx", size: "497 KB", sizeBytes: 497*1024, kind: "Word Document", dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "Slide Sets", size: nil, sizeBytes: nil, kind: nil, dateAdded: nil, dateModified: nil, isFolder: true, expanded: false),
-    FileItem(name: "CG_slide.zip", size: "46.6 MB", sizeBytes: Int64(46.6*1024*1024), kind: nil, dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "500x500.png", size: "6 KB", sizeBytes: 6*1024, kind: "PNG image", dateAdded: nil, dateModified: nil, isFolder: false, expanded: false),
-    FileItem(name: "500x500.svg", size: "5 KB", sizeBytes: 5*1024, kind: "SVG document", dateAdded: nil, dateModified: nil, isFolder: false, expanded: false)
-]
+
+
 
 /// Handles keyboard shortcuts and mouse interactions for the file explorer
 class KeyboardShortcutHandler {

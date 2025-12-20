@@ -39,7 +39,11 @@ class ExplorerViewModel: ObservableObject {
     
     // Search
     @Published var searchText: String = ""
-    
+
+    // Error handling
+    @Published var errorMessage: String? = nil
+    @Published var showErrorAlert: Bool = false
+
     // Breadcrumb
     @Published var breadcrumb: [String] = ["Macintosh HD", "Users", "nandan", "Downloads"]
     
@@ -77,27 +81,74 @@ class ExplorerViewModel: ObservableObject {
         }
     }
 
-    func loadFiles(at url: URL) {
+    private func showError(_ message: String) {
+        errorMessage = message
+        showErrorAlert = true
+    }
+
+    private func isValidFileURL(_ url: URL) -> Bool {
+        // Basic validation: must be file URL, not contain .. for path traversal
+        guard url.scheme == "file" else { return false }
+
+        let path = url.path
+        // Check for path traversal attempts
+        guard !path.contains("../") && !path.contains("..\\") else { return false }
+
+        // Check if the path exists and is a directory
         let fm = FileManager.default
-        do {
-            let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles])
-            self.files = contents.map { fileURL in
-                let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-                let isFolder = resourceValues?.isDirectory ?? false
-                let size = isFolder ? nil : (resourceValues?.fileSize).flatMap { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
-                let kind = isFolder ? "Folder" : fileURL.pathExtension.uppercased()
-                let dateAdded = resourceValues?.contentModificationDate.map { Self.dateFormatter.string(from: $0) }
-                return FileItem(
-                    name: fileURL.lastPathComponent,
-                    size: size,
-                    kind: kind,
-                    dateAdded: dateAdded,
-                    isFolder: isFolder,
-                    expanded: false
-                )
-            }.sorted { $0.name.lowercased() < $1.name.lowercased() }
-        } catch {
-            self.files = []
+        var isDirectory: ObjCBool = false
+        let exists = fm.fileExists(atPath: path, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
+    }
+
+    func loadFiles(at url: URL) {
+        // Perform file operations on background thread to avoid blocking UI
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let fm = FileManager.default
+            do {
+                let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles])
+
+                let fileItems = contents.map { fileURL in
+                    let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+                    let isFolder = resourceValues?.isDirectory ?? false
+                    let size = isFolder ? nil : (resourceValues?.fileSize).flatMap { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+                    let kind = isFolder ? "Folder" : fileURL.pathExtension.uppercased()
+                    let dateAdded = resourceValues?.contentModificationDate.map { Self.dateFormatter.string(from: $0) }
+                    return FileItem(
+                        name: fileURL.lastPathComponent,
+                        size: size,
+                        kind: kind,
+                        dateAdded: dateAdded,
+                        isFolder: isFolder,
+                        expanded: false
+                    )
+                }.sorted { $0.name.lowercased() < $1.name.lowercased() }
+
+                // Update UI on main thread
+                DispatchQueue.main.async {
+                    self.files = fileItems
+                }
+            } catch let error as NSError {
+                // Update UI on main thread
+                DispatchQueue.main.async {
+                    self.files = []
+                    var errorMsg = "Unable to load folder contents."
+                    if error.domain == NSCocoaErrorDomain {
+                        switch error.code {
+                        case NSFileReadNoPermissionError:
+                            errorMsg = "Permission denied. Please grant full disk access in System Settings > Privacy & Security."
+                        case NSFileReadNoSuchFileError:
+                            errorMsg = "The folder no longer exists."
+                        case NSFileReadInvalidFileNameError:
+                            errorMsg = "Invalid folder path."
+                        default:
+                            errorMsg = "File system error: \(error.localizedDescription)"
+                        }
+                    }
+                    self.showError(errorMsg)
+                }
+            }
         }
     }
 
@@ -124,6 +175,12 @@ class ExplorerViewModel: ObservableObject {
     
     // MARK: - Navigation
     func navigateToURL(_ url: URL) {
+        // Validate URL before navigation
+        guard isValidFileURL(url) else {
+            showError("Invalid or inaccessible path.")
+            return
+        }
+
         // If we're not at the end of history, truncate forward history
         if currentHistoryIndex < navigationHistory.count - 1 {
             navigationHistory = Array(navigationHistory.prefix(currentHistoryIndex + 1))
@@ -172,12 +229,21 @@ class ExplorerViewModel: ObservableObject {
     }
 
     func openFile(_ file: FileItem) {
-        guard let url = fileURL(for: file) else { return }
+        guard let url = fileURL(for: file) else {
+            showError("Unable to access file.")
+            return
+        }
 
         if file.isFolder {
             // Navigate into the folder
             navigateToURL(url)
         } else {
+            // Validate file exists before opening
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: url.path) else {
+                showError("File no longer exists.")
+                return
+            }
             // Open file with default application
             NSWorkspace.shared.open(url)
         }

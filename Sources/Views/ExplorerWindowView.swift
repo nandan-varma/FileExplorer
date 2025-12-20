@@ -12,11 +12,19 @@ struct ExplorerWindowView: View {
         }
         .background(Color(.windowBackgroundColor))
         .cornerRadius(12)
+        .alert("Error", isPresented: $viewModel.showErrorAlert, presenting: viewModel.errorMessage) { _ in
+            Button("OK") {
+                viewModel.errorMessage = nil
+                viewModel.showErrorAlert = false
+            }
+        } message: { message in
+            Text(message)
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack {
                     Spacer()
-                    Text(viewModel.selectedSidebarItem.label)
+                    Text(viewModel.currentFolderURL.lastPathComponent)
                         .font(.system(size: 16, weight: .semibold, design: .default))
                         .foregroundColor(.white.opacity(0.85))
                         .frame(maxWidth: .infinity, alignment: .center)

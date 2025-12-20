@@ -44,7 +44,6 @@ struct SidebarView: View {
             Spacer()
         }
         .frame(minWidth: 200, idealWidth: 240, maxWidth: 260)
-        .background(Color.black.opacity(0.7))
     }
 }
 

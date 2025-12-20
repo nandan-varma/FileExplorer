@@ -35,7 +35,6 @@ struct StatusBarView: View {
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 16)
-        .background(Color.black.opacity(0.7))
     }
 }
 

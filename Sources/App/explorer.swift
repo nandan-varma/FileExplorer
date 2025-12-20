@@ -6,7 +6,7 @@ struct ExplorerApp: App {
 		WindowGroup {
 			ExplorerWindowView()
 		}
-		.windowStyle(.titleBar)
+		.windowStyle(.hiddenTitleBar)
 		Settings {
 			EmptyView()
 		}

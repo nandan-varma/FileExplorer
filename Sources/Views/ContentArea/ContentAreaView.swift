@@ -91,7 +91,6 @@ struct ContentAreaView: View {
                 }
             }
         }
-        .background(Color.black.opacity(0.6))
     }
 }
 

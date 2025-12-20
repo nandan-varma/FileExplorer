@@ -17,8 +17,194 @@ class ExplorerViewModel: ObservableObject {
         func trash() { /* TODO: Implement Trash */ }
         func share() { /* TODO: Implement Share */ }
         func viewOptions() { /* TODO: Implement View Options */ }
-        func toggleViewMode() { /* TODO: Implement Grid/List toggle */ }
-        func moreOptions() { /* TODO: Implement More Options */ }
+        func toggleViewMode() {
+            viewMode = viewMode == .list ? .grid : .list
+        }
+        func moreOptions() {
+            // This will be handled by the UI layer with a menu
+        }
+
+    // File operations
+    func copySelectedFiles() {
+        let urls = selectedFileURLs()
+        if !urls.isEmpty {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects(urls as [NSPasteboardWriting])
+        }
+    }
+
+    func duplicateSelectedFiles() {
+        let urls = selectedFileURLs()
+        for url in urls {
+            let fileManager = FileManager.default
+            let duplicateName = generateDuplicateName(for: url)
+            let duplicateURL = url.deletingLastPathComponent().appendingPathComponent(duplicateName)
+
+            do {
+                try fileManager.copyItem(at: url, to: duplicateURL)
+                loadFiles(at: currentFolderURL) // Refresh the view
+            } catch {
+                showError("Failed to duplicate file: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func showGetInfo() {
+        let urls = selectedFileURLs()
+        if let firstURL = urls.first {
+            // On macOS, we can use NSWorkspace to show Get Info
+            NSWorkspace.shared.selectFile(firstURL.path, inFileViewerRootedAtPath: firstURL.deletingLastPathComponent().path)
+        }
+    }
+
+    func compressSelectedFiles() {
+        let urls = selectedFileURLs()
+        guard !urls.isEmpty else { return }
+
+        let fileManager = FileManager.default
+        let tempDir = fileManager.temporaryDirectory
+        let archiveName = "Archive.zip"
+        let archiveURL = tempDir.appendingPathComponent(archiveName)
+
+        // Remove existing archive if it exists
+        try? fileManager.removeItem(at: archiveURL)
+
+        do {
+            // Create zip archive using Process (since FileManager.zipItems might not be available)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            process.arguments = ["-r", archiveURL.path] + urls.map { $0.path }
+
+            try process.run()
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
+                // Move archive to current directory
+                let destinationURL = currentFolderURL.appendingPathComponent(archiveName)
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.moveItem(at: archiveURL, to: destinationURL)
+                loadFiles(at: currentFolderURL) // Refresh the view
+            } else {
+                showError("Failed to create zip archive")
+            }
+        } catch {
+            showError("Failed to compress files: \(error.localizedDescription)")
+        }
+    }
+
+    private func selectedFileURLs() -> [URL] {
+        return selectedFiles.compactMap { selectedFileId in
+            filteredFiles.first(where: { $0.id == selectedFileId }).flatMap { fileURL(for: $0) }
+        }
+    }
+
+    private func generateDuplicateName(for url: URL) -> String {
+        let fileName = url.lastPathComponent
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let fileExtension = url.pathExtension
+
+        let fileManager = FileManager.default
+        var duplicateName = fileName
+        var counter = 1
+
+        while fileManager.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent(duplicateName).path) {
+            if fileExtension.isEmpty {
+                duplicateName = "\(baseName) \(counter)"
+            } else {
+                duplicateName = "\(baseName) \(counter).\(fileExtension)"
+            }
+            counter += 1
+        }
+
+        return duplicateName
+    }
+
+    func startRenaming(_ file: FileItem) {
+        guard let url = fileURL(for: file) else { return }
+        renamingFileId = file.id
+        renameText = file.name
+    }
+
+    func cancelRenaming() {
+        renamingFileId = nil
+        renameText = ""
+    }
+
+    func confirmRename() {
+        guard let fileId = renamingFileId,
+              let file = filteredFiles.first(where: { $0.id == fileId }),
+              let oldURL = fileURL(for: file),
+              !renameText.isEmpty && renameText != file.name else {
+            cancelRenaming()
+            return
+        }
+
+        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(renameText)
+
+        do {
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            loadFiles(at: currentFolderURL) // Refresh the view
+            cancelRenaming()
+        } catch {
+            showError("Failed to rename file: \(error.localizedDescription)")
+        }
+    }
+
+    func createNewFolder() {
+        let fileManager = FileManager.default
+        let baseName = "Untitled Folder"
+        var folderName = baseName
+        var counter = 1
+
+        while fileManager.fileExists(atPath: currentFolderURL.appendingPathComponent(folderName).path) {
+            folderName = "\(baseName) \(counter)"
+            counter += 1
+        }
+
+        let folderURL = currentFolderURL.appendingPathComponent(folderName)
+
+        do {
+            try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: false, attributes: nil)
+            loadFiles(at: currentFolderURL) // Refresh the view
+
+            // Find the new folder and start renaming it
+            if let newFolder = filteredFiles.first(where: { $0.name == folderName }) {
+                startRenaming(newFolder)
+            }
+        } catch {
+            showError("Failed to create folder: \(error.localizedDescription)")
+        }
+    }
+
+    func createNewFile() {
+        let fileManager = FileManager.default
+        let baseName = "Untitled.txt"
+        var fileName = baseName
+        var counter = 1
+
+        while fileManager.fileExists(atPath: currentFolderURL.appendingPathComponent(fileName).path) {
+            let nameWithoutExtension = "Untitled \(counter)"
+            fileName = "\(nameWithoutExtension).txt"
+            counter += 1
+        }
+
+        let fileURL = currentFolderURL.appendingPathComponent(fileName)
+
+        do {
+            try "".write(to: fileURL, atomically: true, encoding: .utf8)
+            loadFiles(at: currentFolderURL) // Refresh the view
+
+            // Find the new file and start renaming it
+            if let newFile = filteredFiles.first(where: { $0.name == fileName }) {
+                startRenaming(newFile)
+            }
+        } catch {
+            showError("Failed to create file: \(error.localizedDescription)")
+        }
+    }
+
     // Sidebar
     @Published var selectedSidebarItem: SidebarItemType = .downloads
     @Published var sidebarItems: [SidebarItemType] = SidebarItemType.allCases
@@ -45,8 +231,24 @@ class ExplorerViewModel: ObservableObject {
     // Quick Look
     @Published var quickLookURL: URL? = nil
 
+    // File operations
+    @Published var renamingFileId: FileItem.ID? = nil
+    @Published var renameText: String = ""
+
     // View options
     @Published var viewMode: ViewMode = .list
+    @Published var showHiddenFiles: Bool = false
+    @Published var iconSize: Double = 64
+
+    func toggleHiddenFiles(_ show: Bool) {
+        showHiddenFiles = show
+        // Reload current directory to apply filter
+        loadFiles(at: currentFolderURL)
+    }
+
+    func setIconSize(_ size: Double) {
+        iconSize = size
+    }
 
     // Error handling
     @Published var errorMessage: String? = nil
@@ -115,7 +317,8 @@ class ExplorerViewModel: ObservableObject {
             guard let self = self else { return }
             let fm = FileManager.default
             do {
-                let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles])
+                let options: FileManager.DirectoryEnumerationOptions = showHiddenFiles ? [] : [.skipsHiddenFiles]
+                let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: options)
 
                 let fileItems = contents.map { fileURL in
                     let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
@@ -298,7 +501,7 @@ class ExplorerViewModel: ObservableObject {
         applySorting()
     }
 
-    private func applySorting() {
+    func applySorting() {
         filteredFiles.sort { lhs, rhs in
             let result: Bool
             switch sortColumn {
@@ -355,7 +558,6 @@ class ExplorerViewModel: ObservableObject {
     // MARK: - Breadcrumb
     func navigateToBreadcrumb(index: Int) {
         breadcrumb = Array(breadcrumb.prefix(index + 1))
-        // TODO: Update files for breadcrumb
     }
 }
 

@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "explorer",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v26)
     ],
     dependencies: [
         .package(url: "https://github.com/inket/FullDiskAccess.git", from: "1.0.0")

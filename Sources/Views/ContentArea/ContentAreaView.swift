@@ -1,6 +1,7 @@
 import SwiftUI
 import QuickLook
 import AppKit
+import Quartz
 
 
 
@@ -70,13 +71,151 @@ struct ContentAreaView: View {
     @State private var hoveredFile: FileItem.ID? = nil
 
     @State private var keyboardMonitor: Any? = nil
+    @State private var globalKeyboardMonitor: Any? = nil
     private let shortcutHandler: KeyboardShortcutHandler
 
     init(viewModel: ExplorerViewModel) {
         self.viewModel = viewModel
         self.shortcutHandler = KeyboardShortcutHandler(viewModel: viewModel)
     }
+
+    private func selectNextFile() {
+        guard !viewModel.filteredFiles.isEmpty else { return }
+
+        let currentIndex: Int
+        if let selectedId = viewModel.selectedFiles.first,
+           let index = viewModel.filteredFiles.firstIndex(where: { $0.id == selectedId }) {
+            currentIndex = index
+        } else if !viewModel.filteredFiles.isEmpty {
+            // No selection, start with first file
+            currentIndex = 0
+        } else {
+            return
+        }
+
+        let nextIndex = (currentIndex + 1) % viewModel.filteredFiles.count
+        let nextFile = viewModel.filteredFiles[nextIndex]
+        viewModel.selectFile(nextFile)
+    }
+
+    private func selectPreviousFile() {
+        guard !viewModel.filteredFiles.isEmpty else { return }
+
+        let currentIndex: Int
+        if let selectedId = viewModel.selectedFiles.first,
+           let index = viewModel.filteredFiles.firstIndex(where: { $0.id == selectedId }) {
+            currentIndex = index
+        } else if !viewModel.filteredFiles.isEmpty {
+            // No selection, start with last file
+            currentIndex = viewModel.filteredFiles.count - 1
+        } else {
+            return
+        }
+
+        let prevIndex = currentIndex == 0 ? viewModel.filteredFiles.count - 1 : currentIndex - 1
+        let prevFile = viewModel.filteredFiles[prevIndex]
+        viewModel.selectFile(prevFile)
+    }
+
+    private func setupKeyboardMonitoring() {
+        // Local monitor for when Quick Look is not active
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if self.viewModel.quickLookURL == nil {
+                return self.handleKeyDown(event)
+            }
+            return event // Pass through if Quick Look is active
+        }
+
+        // Global monitor for when Quick Look is active (higher priority)
+        globalKeyboardMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            if self.viewModel.quickLookURL != nil {
+                _ = self.handleKeyDown(event)
+            }
+        }
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> NSEvent? {
+        // Space bar for Quick Look
+        if event.keyCode == 49 { // Space bar
+            if self.viewModel.quickLookURL != nil {
+                // Close Quick Look if it's open
+                self.viewModel.quickLookURL = nil
+                return nil
+            } else if let url = self.shortcutHandler.handleSpaceBar() {
+                // Open Quick Look
+                self.viewModel.quickLookURL = url
+                return nil
+            }
+        }
+
+        // Arrow keys for navigation (work in both normal and Quick Look modes)
+        if event.keyCode == 126 { // Up arrow
+            self.selectPreviousFile()
+            return nil
+        } else if event.keyCode == 125 { // Down arrow
+            self.selectNextFile()
+            return nil
+        } else if event.keyCode == 123 { // Left arrow
+            self.viewModel.goBack()
+            return nil
+        } else if event.keyCode == 124 { // Right arrow
+            self.viewModel.goForward()
+            return nil
+        }
+
+        // Enter key to open (only in normal mode)
+        if event.keyCode == 36 && viewModel.quickLookURL == nil { // Return/Enter
+            if let selectedFileId = self.viewModel.selectedFiles.first,
+               let file = self.viewModel.filteredFiles.first(where: { $0.id == selectedFileId }) {
+                self.viewModel.openFile(file)
+            }
+            return nil
+        }
+
+        // Delete/Backspace for trash (only in normal mode)
+        if (event.keyCode == 51 || event.keyCode == 117) && viewModel.quickLookURL == nil { // Delete or Forward Delete
+            if !self.viewModel.selectedFiles.isEmpty {
+                self.viewModel.trash()
+            }
+            return nil
+        }
+
+        // Escape to cancel rename (only in normal mode)
+        if event.keyCode == 53 && viewModel.quickLookURL == nil { // Escape
+            if self.viewModel.renamingFileId != nil {
+                self.viewModel.cancelRenaming()
+                return nil
+            }
+        }
+
+        return event // Pass through other events
+    }
+
     var body: some View {
+        Group {
+            if viewModel.viewMode == .grid {
+                gridView
+            } else {
+                listView
+            }
+        }
+        .onAppear {
+            setupKeyboardMonitoring()
+        }
+        .onDisappear {
+            if let monitor = keyboardMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyboardMonitor = nil
+            }
+            if let monitor = globalKeyboardMonitor {
+                NSEvent.removeMonitor(monitor)
+                globalKeyboardMonitor = nil
+            }
+        }
+        .quickLookPreview($viewModel.quickLookURL)
+    }
+
+    private var listView: some View {
         let columns: [GridItem] = [
             GridItem(.fixed(24)), // Icon
             GridItem(.flexible()), // Name
@@ -84,7 +223,8 @@ struct ContentAreaView: View {
             GridItem(.fixed(120)), // Kind
             GridItem(.fixed(160)) // Date Added
         ]
-        VStack(spacing: 0) {
+
+        return VStack(spacing: 0) {
             // Column headers
             LazyVGrid(columns: columns, spacing: 0) {
                 Color.clear.frame(width: 24, height: 20) // Icon header placeholder
@@ -102,34 +242,59 @@ struct ContentAreaView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 0) {
                     ForEach(viewModel.filteredFiles) { file in
-                        Group {
-                            Image(systemName: file.isFolder ? "folder" : "doc")
-                                .foregroundColor(file.isFolder ? .blue : .white)
-                                .frame(width: 24)
-                            Text(file.name)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(file.size ?? "")
-                                .frame(width: 80, alignment: .trailing)
-                            Text(file.kind ?? "")
-                                .frame(width: 120, alignment: .leading)
-                            Text(file.dateAdded ?? "")
-                                .frame(width: 160, alignment: .leading)
+                        fileRow(for: file)
+                    }
+                }
+            }
+        }
+    }
+
+    private var gridView: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: .infinity), spacing: 12)], spacing: 12) {
+                ForEach(viewModel.filteredFiles) { file in
+                    VStack(spacing: 6) {
+                        VStack(spacing: 4) {
+                            if let url = viewModel.fileURL(for: file) {
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                                    .resizable()
+                                    .frame(width: CGFloat(viewModel.iconSize), height: CGFloat(viewModel.iconSize))
+                            } else {
+                                Image(systemName: file.isFolder ? "folder" : "doc")
+                                    .resizable()
+                                    .frame(width: CGFloat(viewModel.iconSize), height: CGFloat(viewModel.iconSize))
+                                    .foregroundColor(file.isFolder ? .blue : .white)
+                            }
+
+                            if viewModel.renamingFileId == file.id {
+                                TextField("Filename", text: $viewModel.renameText, onCommit: {
+                                    viewModel.confirmRename()
+                                })
+                                .textFieldStyle(.plain)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .font(.system(size: 11))
+                                .onExitCommand {
+                                    viewModel.cancelRenaming()
+                                }
+                            } else {
+                                Text(file.name)
+                                    .font(.system(size: 11))
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 4)
+                            }
                         }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, minHeight: 100)
                         .background(
-                            (viewModel.selectedFiles.contains(file.id)) ? Color.blue.opacity(0.2) : (hoveredFile == file.id ? Color.white.opacity(0.08) : Color.clear)
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(viewModel.selectedFiles.contains(file.id) ? Color.blue.opacity(0.2) : Color.clear)
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
-                                shortcutHandler.handleCommandClick(for: file)
-                            } else {
-                                viewModel.selectFile(file)
-                            }
-                        }
-                        .onHover { hovering in
-                            hoveredFile = hovering ? file.id : nil
+                            viewModel.selectFile(file)
                         }
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
                             viewModel.openFile(file)
@@ -137,59 +302,60 @@ struct ContentAreaView: View {
                     }
                 }
             }
+            .padding(16)
+            .frame(maxWidth: .infinity)
         }
-        .onAppear {
-            keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.keyCode == 49 { // Space bar
-                    if let url = self.shortcutHandler.handleSpaceBar() {
-                        self.viewModel.quickLookURL = url
-                        return nil // Consume the event
-                    }
-                }
-                return event // Pass through other events
-            }
-        }
-        .onDisappear {
-            if let monitor = keyboardMonitor {
-                NSEvent.removeMonitor(monitor)
-                keyboardMonitor = nil
-            }
-        }
-
-        // Quick Look Preview modifier
-        .quickLookPreview($viewModel.quickLookURL)
+        .frame(maxWidth: .infinity)
     }
-}
 
-struct FileRowView: View {
-    let file: FileItem
-    var selected: Bool = false
-    var hovered: Bool = false
-    var onSelect: () -> Void = {}
-    var onOpen: () -> Void = {}
-    var body: some View {
-        Button(action: onSelect) {
-            HStack {
+    private func fileRow(for file: FileItem) -> some View {
+        Group {
+            if let url = viewModel.fileURL(for: file) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    .resizable()
+                    .frame(width: 20, height: 20)
+            } else {
                 Image(systemName: file.isFolder ? "folder" : "doc")
                     .foregroundColor(file.isFolder ? .blue : .white)
-                    .frame(width: 24)
+                    .frame(width: 20)
+            }
+
+            if viewModel.renamingFileId == file.id {
+                TextField("Filename", text: $viewModel.renameText, onCommit: {
+                    viewModel.confirmRename()
+                })
+                .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onExitCommand {
+                    viewModel.cancelRenaming()
+                }
+            } else {
                 Text(file.name)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(file.size ?? "").frame(width: 80, alignment: .trailing)
-                Text(file.kind ?? "").frame(width: 120, alignment: .leading)
-                Text(file.dateAdded ?? "").frame(width: 160, alignment: .leading)
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
-            .background(
-                selected ? Color.accentColor.opacity(0.4) : (hovered ? Color.white.opacity(0.08) : Color.clear)
-            )
-            .contentShape(Rectangle())
+
+            Text(file.size ?? "")
+                .frame(width: 80, alignment: .trailing)
+            Text(file.kind ?? "")
+                .frame(width: 120, alignment: .leading)
+            Text(file.dateAdded ?? "")
+                .frame(width: 160, alignment: .leading)
         }
-        .buttonStyle(PlainButtonStyle())
-        .simultaneousGesture(TapGesture(count: 2).onEnded { onOpen() })
+        .background(
+            (viewModel.selectedFiles.contains(file.id)) ? Color.blue.opacity(0.2) : (hoveredFile == file.id ? Color.white.opacity(0.08) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.selectFile(file)
+        }
+        .onHover { hovering in
+            hoveredFile = hovering ? file.id : nil
+        }
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            viewModel.openFile(file)
+        })
     }
 }
 

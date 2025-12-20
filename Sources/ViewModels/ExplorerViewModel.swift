@@ -44,8 +44,13 @@ class ExplorerViewModel: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var showErrorAlert: Bool = false
 
+    // Simple directory cache for performance (LRU with max 10 entries)
+    private var directoryCache: [URL: [FileItem]] = [:]
+    private var cacheOrder: [URL] = []
+    private let maxCacheSize = 10
+
     // Breadcrumb
-    @Published var breadcrumb: [String] = ["Macintosh HD", "Users", "nandan", "Downloads"]
+    @Published var breadcrumb: [String] = ["Macintosh HD", "Users", NSUserName(), "Downloads"]
     
     // MARK: - Sidebar
     func selectSidebarItem(_ item: SidebarItemType) {
@@ -86,22 +91,132 @@ class ExplorerViewModel: ObservableObject {
         showErrorAlert = true
     }
 
+    private func cacheFiles(_ files: [FileItem], for url: URL) {
+        directoryCache[url] = files
+        cacheOrder.append(url)
+
+        // Maintain LRU cache size
+        if cacheOrder.count > maxCacheSize {
+            let oldestURL = cacheOrder.removeFirst()
+            directoryCache.removeValue(forKey: oldestURL)
+        }
+    }
+
+    private func getCachedFiles(for url: URL) -> [FileItem]? {
+        if let cached = directoryCache[url] {
+            // Move to end (most recently used)
+            if let index = cacheOrder.firstIndex(of: url) {
+                cacheOrder.remove(at: index)
+                cacheOrder.append(url)
+            }
+            return cached
+        }
+        return nil
+    }
+
+    private func errorMessageForError(_ error: NSError) -> String {
+        var errorMsg = "Unable to load folder contents."
+
+        if error.domain == NSCocoaErrorDomain {
+            switch error.code {
+            case NSFileReadNoPermissionError:
+                errorMsg = "Permission denied. Please grant full disk access in System Settings > Privacy & Security."
+            case NSFileReadNoSuchFileError:
+                errorMsg = "The folder no longer exists."
+            case NSFileReadInvalidFileNameError:
+                errorMsg = "Invalid folder path."
+            case NSFileReadCorruptFileError:
+                errorMsg = "The folder appears to be corrupted."
+            case NSFileReadInapplicableStringEncodingError:
+                errorMsg = "Unable to read folder metadata due to encoding issues."
+            case NSFileReadUnsupportedSchemeError:
+                errorMsg = "Unsupported file system format."
+            case NSFileReadTooLargeError:
+                errorMsg = "The folder is too large to display."
+            case NSFileReadUnknownError:
+                errorMsg = "An unknown file system error occurred."
+            default:
+                if error.code >= 0 && error.code <= 999 {
+                    errorMsg = "File system error (\(error.code)): \(error.localizedDescription)"
+                } else {
+                    errorMsg = "Unexpected error: \(error.localizedDescription)"
+                }
+            }
+        } else if error.domain == NSPOSIXErrorDomain {
+            // Handle POSIX errors
+            switch error.code {
+            case Int(ENOENT):
+                errorMsg = "The folder no longer exists."
+            case Int(EACCES):
+                errorMsg = "Permission denied to access this folder."
+            case Int(ENOTDIR):
+                errorMsg = "The selected item is not a folder."
+            case Int(EIO):
+                errorMsg = "Input/output error while reading the folder."
+            case Int(ENOSPC):
+                errorMsg = "No space left on device."
+            case Int(EROFS):
+                errorMsg = "The file system is read-only."
+            default:
+                errorMsg = "System error: \(error.localizedDescription)"
+            }
+        } else {
+            errorMsg = "Error: \(error.localizedDescription)"
+        }
+
+        return errorMsg
+    }
+
     private func isValidFileURL(_ url: URL) -> Bool {
-        // Basic validation: must be file URL, not contain .. for path traversal
+        // Comprehensive path validation for security
         guard url.scheme == "file" else { return false }
+        guard url.host == nil || url.host == "" else { return false } // No remote hosts
 
-        let path = url.path
-        // Check for path traversal attempts
-        guard !path.contains("../") && !path.contains("..\\") else { return false }
+        do {
+            // Normalize the URL by resolving symlinks and getting absolute path
+            let resolvedURL = try url.resolvingSymlinksInPath()
+            let normalizedPath = resolvedURL.path
 
-        // Check if the path exists and is a directory
-        let fm = FileManager.default
-        var isDirectory: ObjCBool = false
-        let exists = fm.fileExists(atPath: path, isDirectory: &isDirectory)
-        return exists && isDirectory.boolValue
+            // Check for path traversal attempts (multiple patterns)
+            let traversalPatterns = ["../", "..\\", "%2e%2e%2f", "%2e%2e/", "%2e%2e\\"]
+            for pattern in traversalPatterns {
+                if normalizedPath.contains(pattern) { return false }
+            }
+
+            // Prevent access to system-critical directories
+            let forbiddenPaths = ["/System", "/usr", "/bin", "/sbin", "/private", "/cores"]
+            for forbidden in forbiddenPaths {
+                if normalizedPath.hasPrefix(forbidden) { return false }
+            }
+
+            // Check if the resolved path exists and is accessible
+            let fm = FileManager.default
+            var isDirectory: ObjCBool = false
+            let exists = fm.fileExists(atPath: normalizedPath, isDirectory: &isDirectory)
+
+            // Additional security: verify we can actually read the directory
+            if exists && isDirectory.boolValue {
+                do {
+                    let _ = try fm.contentsOfDirectory(atPath: normalizedPath)
+                    return true
+                } catch {
+                    return false // Can't read directory despite it existing
+                }
+            }
+
+            return false
+        } catch {
+            return false // Failed to resolve symlinks or other validation error
+        }
     }
 
     func loadFiles(at url: URL) {
+        // Check cache first for instant loading
+        if let cachedFiles = getCachedFiles(for: url) {
+            self.files = cachedFiles
+            return
+        }
+
         // Perform file operations on background thread to avoid blocking UI
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -125,6 +240,9 @@ class ExplorerViewModel: ObservableObject {
                     )
                 }.sorted { $0.name.lowercased() < $1.name.lowercased() }
 
+                // Cache the results
+                self.cacheFiles(fileItems, for: url)
+
                 // Update UI on main thread
                 DispatchQueue.main.async {
                     self.files = fileItems
@@ -133,20 +251,7 @@ class ExplorerViewModel: ObservableObject {
                 // Update UI on main thread
                 DispatchQueue.main.async {
                     self.files = []
-                    var errorMsg = "Unable to load folder contents."
-                    if error.domain == NSCocoaErrorDomain {
-                        switch error.code {
-                        case NSFileReadNoPermissionError:
-                            errorMsg = "Permission denied. Please grant full disk access in System Settings > Privacy & Security."
-                        case NSFileReadNoSuchFileError:
-                            errorMsg = "The folder no longer exists."
-                        case NSFileReadInvalidFileNameError:
-                            errorMsg = "Invalid folder path."
-                        default:
-                            errorMsg = "File system error: \(error.localizedDescription)"
-                        }
-                    }
-                    self.showError(errorMsg)
+                    self.showError(self.errorMessageForError(error))
                 }
             }
         }
@@ -313,10 +418,10 @@ enum SidebarItemType: String, CaseIterable, Identifiable {
         case .pictures: return "Pictures"
         case .recents: return "Recents"
         case .shared: return "Shared"
-        case .nandan: return "nandan"
+        case .nandan: return NSUserName()
         case .dev: return "dev"
         case .icloud: return "iCloud Drive"
-        case .home: return "nandan"
+        case .home: return NSUserName()
         case .macbook: return "Nandan’s MacBook Air"
         }
     }

@@ -23,16 +23,17 @@ class ExplorerViewModel: ObservableObject {
     @Published var selectedSidebarItem: SidebarItemType = .downloads
     @Published var sidebarItems: [SidebarItemType] = SidebarItemType.allCases
     
-    // Navigation
-    @Published var navigationStack: [SidebarItemType] = [.downloads]
+    // Navigation History (URL-based)
+    @Published var navigationHistory: [URL] = []
+    @Published var currentHistoryIndex: Int = -1
     @Published var canGoBack: Bool = false
     @Published var canGoForward: Bool = false
-    private var forwardStack: [SidebarItemType] = []
     
     // File list
     @Published var files: [FileItem] = []
     @Published var currentFolderURL: URL = FileManager.default.homeDirectoryForCurrentUser
     @Published var selectedFile: FileItem.ID? = nil
+    @Published var selectedFiles: Set<FileItem.ID> = []
     @Published var sortColumn: FileSortColumn = .dateAdded
     @Published var sortAscending: Bool = false
     
@@ -45,13 +46,9 @@ class ExplorerViewModel: ObservableObject {
     // MARK: - Sidebar
     func selectSidebarItem(_ item: SidebarItemType) {
         selectedSidebarItem = item
-        navigationStack.append(item)
-        forwardStack.removeAll()
-        updateNavigationState()
         // Update files for selected item
         let url = urlForSidebarItem(item)
-        currentFolderURL = url
-        loadFiles(at: url)
+        navigateToURL(url)
     }
 
     private func urlForSidebarItem(_ item: SidebarItemType) -> URL {
@@ -113,33 +110,104 @@ class ExplorerViewModel: ObservableObject {
 
     // Load files for initial folder on init
     init() {
-        loadFiles(at: currentFolderURL)
+        // Start with Downloads folder as initial location
+        let downloadsURL = urlForSidebarItem(.downloads)
+        currentFolderURL = downloadsURL
+        selectedSidebarItem = .downloads
+
+        // Initialize navigation history with the downloads folder
+        navigationHistory = [downloadsURL]
+        currentHistoryIndex = 0
+        updateNavigationState()
+        loadFiles(at: downloadsURL)
     }
     
     // MARK: - Navigation
+    func navigateToURL(_ url: URL) {
+        // If we're not at the end of history, truncate forward history
+        if currentHistoryIndex < navigationHistory.count - 1 {
+            navigationHistory = Array(navigationHistory.prefix(currentHistoryIndex + 1))
+        }
+
+        // Add new URL to history
+        navigationHistory.append(url)
+        currentHistoryIndex = navigationHistory.count - 1
+
+        // Update current folder and load files
+        currentFolderURL = url
+        loadFiles(at: url)
+        updateNavigationState()
+        updateBreadcrumb(for: url)
+    }
+
     func goBack() {
-        guard navigationStack.count > 1 else { return }
-        let last = navigationStack.removeLast()
-        forwardStack.append(last)
-        selectedSidebarItem = navigationStack.last ?? .downloads
+        guard canGoBack else { return }
+        currentHistoryIndex -= 1
+        let url = navigationHistory[currentHistoryIndex]
+        currentFolderURL = url
+        loadFiles(at: url)
         updateNavigationState()
-        // TODO: Update files for selected item
+        updateBreadcrumb(for: url)
     }
+
     func goForward() {
-        guard let next = forwardStack.popLast() else { return }
-        navigationStack.append(next)
-        selectedSidebarItem = next
+        guard canGoForward else { return }
+        currentHistoryIndex += 1
+        let url = navigationHistory[currentHistoryIndex]
+        currentFolderURL = url
+        loadFiles(at: url)
         updateNavigationState()
-        // TODO: Update files for selected item
+        updateBreadcrumb(for: url)
     }
+
     private func updateNavigationState() {
-        canGoBack = navigationStack.count > 1
-        canGoForward = !forwardStack.isEmpty
+        canGoBack = currentHistoryIndex > 0
+        canGoForward = currentHistoryIndex < navigationHistory.count - 1
     }
     
     // MARK: - File Selection
     func selectFile(_ file: FileItem) {
         selectedFile = file.id
+        selectedFiles = [file.id]
+    }
+
+    func openFile(_ file: FileItem) {
+        guard let url = fileURL(for: file) else { return }
+
+        if file.isFolder {
+            // Navigate into the folder
+            navigateToURL(url)
+        } else {
+            // Open file with default application
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func updateBreadcrumb(for url: URL) {
+        // Simple breadcrumb update - in a real implementation, you'd want more sophisticated path handling
+        let pathComponents = url.pathComponents
+        // Find the index where the path diverges from the root
+        // For now, just set a basic breadcrumb
+        breadcrumb = ["Macintosh HD"] + pathComponents.dropFirst()
+    }
+
+    func selectAdditionalFile(_ file: FileItem) {
+        selectedFiles.insert(file.id)
+        if selectedFile == nil {
+            selectedFile = file.id
+        }
+    }
+
+    func deselectFile(_ file: FileItem) {
+        selectedFiles.remove(file.id)
+        if selectedFile == file.id {
+            selectedFile = selectedFiles.first
+        }
+    }
+
+    func clearSelection() {
+        selectedFile = nil
+        selectedFiles.removeAll()
     }
     
     // MARK: - Sorting

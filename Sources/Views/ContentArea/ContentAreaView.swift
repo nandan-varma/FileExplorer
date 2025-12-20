@@ -1,5 +1,8 @@
 import SwiftUI
 import QuickLook
+import AppKit
+
+
 
 struct FileItem: Identifiable, Equatable {
     let id = UUID()
@@ -29,10 +32,46 @@ let sampleFiles: [FileItem] = [
     FileItem(name: "500x500.svg", size: "5 KB", kind: "SVG document", dateAdded: nil, isFolder: false, expanded: false)
 ]
 
+/// Handles keyboard shortcuts and mouse interactions for the file explorer
+class KeyboardShortcutHandler {
+    private var viewModel: ExplorerViewModel
+
+    init(viewModel: ExplorerViewModel) {
+        self.viewModel = viewModel
+    }
+
+
+
+
+
+    func handleSpaceBar() -> URL? {
+        guard let selectedFile = viewModel.selectedFile,
+              let file = viewModel.files.first(where: { $0.id == selectedFile }),
+              let url = viewModel.fileURL(for: file) else { return nil }
+
+        return url
+    }
+
+    func handleCommandClick(for file: FileItem) {
+        if viewModel.selectedFiles.contains(file.id) {
+            // Deselect if already selected
+            viewModel.deselectFile(file)
+        } else {
+            // Add to selection
+            viewModel.selectAdditionalFile(file)
+        }
+    }
+}
+
 struct ContentAreaView: View {
     @ObservedObject var viewModel: ExplorerViewModel
     @State private var hoveredFile: FileItem.ID? = nil
     @State private var quickLookURL: URL? = nil
+    @State private var keyboardMonitor: Any? = nil
+
+    private var shortcutHandler: KeyboardShortcutHandler {
+        KeyboardShortcutHandler(viewModel: viewModel)
+    }
     var body: some View {
         let columns: [GridItem] = [
             GridItem(.fixed(24)), // Icon
@@ -75,26 +114,44 @@ struct ContentAreaView: View {
                                 .frame(width: 160, alignment: .leading)
                         }
                         .background(
-                            (viewModel.selectedFile == file.id) ? Color.blue.opacity(0.2) : (hoveredFile == file.id ? Color.white.opacity(0.08) : Color.clear)
+                            (viewModel.selectedFiles.contains(file.id)) ? Color.blue.opacity(0.2) : (hoveredFile == file.id ? Color.white.opacity(0.08) : Color.clear)
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            viewModel.selectFile(file)
+                            if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
+                                shortcutHandler.handleCommandClick(for: file)
+                            } else {
+                                viewModel.selectFile(file)
+                            }
                         }
                         .onHover { hovering in
                             hoveredFile = hovering ? file.id : nil
                         }
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            if !file.isFolder {
-                                if let url = viewModel.fileURL(for: file) {
-                                    quickLookURL = url
-                                }
-                            }
+                            viewModel.openFile(file)
                         })
                     }
                 }
             }
         }
+        .onAppear {
+            keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 49 { // Space bar
+                    if let url = shortcutHandler.handleSpaceBar() {
+                        quickLookURL = url
+                        return nil // Consume the event
+                    }
+                }
+                return event // Pass through other events
+            }
+        }
+        .onDisappear {
+            if let monitor = keyboardMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyboardMonitor = nil
+            }
+        }
+
         // Quick Look Preview modifier
         .quickLookPreview($quickLookURL)
     }

@@ -2,10 +2,11 @@ import Foundation
 import SwiftUI
 import AppKit
 
+@MainActor
 class ExplorerViewModel: ObservableObject {
-    // MARK: - File list state (inlined from SearchService)
-    private var _files: [FileItem] = []
-    private var _filteredFiles: [FileItem] = []
+    private let fileSystemService = FileSystemService()
+    // MARK: - File list state
+    @Published var files: [FileItem] = []
 
     // MARK: - Navigation state (inlined from NavigationService)
     private var _navigationHistory: [URL] = []
@@ -41,16 +42,14 @@ class ExplorerViewModel: ObservableObject {
     @Published var selectedSidebarItem: SidebarItemType = .downloads
 
     // MARK: - Computed Properties
-    var files: [FileItem] {
-        get { _files }
-        set {
-            _files = newValue
-            updateFilteredFiles()
-        }
-    }
-
     var filteredFiles: [FileItem] {
-        _filteredFiles
+        if _searchText.isEmpty {
+            return files
+        } else {
+            return files.filter { file in
+                file.name.lowercased().contains(_searchText.lowercased())
+            }
+        }
     }
 
     var currentFolderURL: URL {
@@ -142,45 +141,19 @@ class ExplorerViewModel: ObservableObject {
     }
 
     func loadFiles(at url: URL) {
-        // Perform file operations on background thread to avoid blocking UI
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            let fm = FileManager.default
-            do {
-                let options: FileManager.DirectoryEnumerationOptions = self._showHiddenFiles ? [] : [.skipsHiddenFiles]
-                let contents = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: options)
-
-                let fileItems = contents.map { fileURL in
-                    let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-                    let isFolder = resourceValues?.isDirectory ?? false
-                    let sizeBytes = resourceValues?.fileSize.map { Int64($0) }
-                    let size = isFolder ? nil : sizeBytes.flatMap { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
-                    let kind = isFolder ? "Folder" : fileURL.pathExtension.uppercased()
-                    let dateModified = resourceValues?.contentModificationDate
-                    let dateAdded = dateModified.map { Self.dateFormatter.string(from: $0) }
-                    return FileItem(
-                        name: fileURL.lastPathComponent,
-                        size: size,
-                        sizeBytes: sizeBytes,
-                        kind: kind,
-                        dateAdded: dateAdded,
-                        dateModified: dateModified,
-                        isFolder: isFolder,
-                        expanded: false
-                    )
-                }
-
-                // Update UI on main thread
-                DispatchQueue.main.async {
+        fileSystemService.loadFiles(at: url, showHiddenFiles: _showHiddenFiles) { [weak self] result in
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                switch result {
+                case .success(let fileItems):
                     self.files = fileItems
-                }
-            } catch let error as NSError {
-                // Update UI on main thread
-                DispatchQueue.main.async {
+                    self.applySorting()
+                case .failure(let error):
                     self.files = []
+                    let nsError = error as NSError
                     var errorMsg = "Unable to load folder contents."
-                    if error.domain == NSCocoaErrorDomain {
-                        switch error.code {
+                    if nsError.domain == NSCocoaErrorDomain {
+                        switch nsError.code {
                         case NSFileReadNoPermissionError:
                             errorMsg = "Permission denied. Please grant full disk access in System Settings > Privacy & Security."
                         case NSFileReadNoSuchFileError:
@@ -188,8 +161,10 @@ class ExplorerViewModel: ObservableObject {
                         case NSFileReadInvalidFileNameError:
                             errorMsg = "Invalid folder path."
                         default:
-                            errorMsg = "File system error: \(error.localizedDescription)"
+                            errorMsg = "File system error: \(nsError.localizedDescription)"
                         }
+                    } else {
+                        errorMsg = error.localizedDescription
                     }
                     self.showError(errorMsg)
                 }
@@ -500,7 +475,7 @@ class ExplorerViewModel: ObservableObject {
     // MARK: - Search & Sorting
     func updateSearch(_ text: String) {
         _searchText = text
-        updateFilteredFiles()
+        // No longer needed; filteredFiles is computed
     }
 
     func sort(by column: FileSortColumn) {
@@ -571,26 +546,17 @@ class ExplorerViewModel: ObservableObject {
         }
     }
 
-    private func updateFilteredFiles() {
-        if _searchText.isEmpty {
-            _filteredFiles = _files
-        } else {
-            _filteredFiles = _files.filter { file in
-                file.name.lowercased().contains(_searchText.lowercased())
-            }
-        }
-        applySorting()
-    }
+    // updateFilteredFiles is no longer needed
 
 
 
     private func performSearch(_ text: String) {
         _searchText = text
-        updateFilteredFiles()
+        // No longer needed; filteredFiles is computed
     }
 
     func applySorting() {
-        _filteredFiles.sort { lhs, rhs in
+        files.sort { lhs, rhs in
             let result: Bool
             switch _sortColumn {
             case .name:

@@ -15,7 +15,13 @@ let package = Package(
         .executableTarget(
             name: "explorer",
             dependencies: ["FullDiskAccess"],
-            path: "Sources"
+            path: "Sources",
+            exclude: [
+                "Resources/Info.plist",
+            ],
+            resources: [
+                .process("Resources/explorer.entitlements")
+            ]
         ),
     ]
 )

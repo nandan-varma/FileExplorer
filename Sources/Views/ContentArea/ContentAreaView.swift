@@ -1,13 +1,7 @@
-import SwiftUI
-import QuickLook
 import AppKit
 import Quartz
-
-
-
-
-
-
+import QuickLook
+import SwiftUI
 
 /// Handles keyboard shortcuts and mouse interactions for the file explorer
 class KeyboardShortcutHandler {
@@ -17,18 +11,17 @@ class KeyboardShortcutHandler {
         self.viewModel = viewModel
     }
 
-
-
-
-
+    @MainActor
     func handleSpaceBar() -> URL? {
         guard let selectedFile = viewModel.selectedFile,
-              let file = viewModel.filteredFiles.first(where: { $0.id == selectedFile }),
-              let url = viewModel.fileURL(for: file) else { return nil }
+            let file = viewModel.filteredFiles.first(where: { $0.id == selectedFile }),
+            let url = viewModel.fileURL(for: file)
+        else { return nil }
 
         return url
     }
 
+    @MainActor
     func handleCommandClick(for file: FileItem) {
         if viewModel.selectedFiles.contains(file.id) {
             // Deselect if already selected
@@ -43,6 +36,7 @@ class KeyboardShortcutHandler {
 struct ContentAreaView: View {
     @ObservedObject var viewModel: ExplorerViewModel
     @State private var hoveredFile: FileItem.ID? = nil
+    @State private var selectionUpdateTrigger: Int = 0
 
     @State private var keyboardMonitor: Any? = nil
     @State private var globalKeyboardMonitor: Any? = nil
@@ -58,7 +52,8 @@ struct ContentAreaView: View {
 
         let currentIndex: Int
         if let selectedId = viewModel.selectedFiles.first,
-           let index = viewModel.filteredFiles.firstIndex(where: { $0.id == selectedId }) {
+            let index = viewModel.filteredFiles.firstIndex(where: { $0.id == selectedId })
+        {
             currentIndex = index
         } else if !viewModel.filteredFiles.isEmpty {
             // No selection, start with first file
@@ -70,6 +65,7 @@ struct ContentAreaView: View {
         let nextIndex = (currentIndex + 1) % viewModel.filteredFiles.count
         let nextFile = viewModel.filteredFiles[nextIndex]
         viewModel.selectFile(nextFile)
+        selectionUpdateTrigger += 1
     }
 
     private func selectPreviousFile() {
@@ -77,7 +73,8 @@ struct ContentAreaView: View {
 
         let currentIndex: Int
         if let selectedId = viewModel.selectedFiles.first,
-           let index = viewModel.filteredFiles.firstIndex(where: { $0.id == selectedId }) {
+            let index = viewModel.filteredFiles.firstIndex(where: { $0.id == selectedId })
+        {
             currentIndex = index
         } else if !viewModel.filteredFiles.isEmpty {
             // No selection, start with last file
@@ -89,6 +86,7 @@ struct ContentAreaView: View {
         let prevIndex = currentIndex == 0 ? viewModel.filteredFiles.count - 1 : currentIndex - 1
         let prevFile = viewModel.filteredFiles[prevIndex]
         viewModel.selectFile(prevFile)
+        selectionUpdateTrigger += 1
     }
 
     private func setupKeyboardMonitoring() {
@@ -97,7 +95,7 @@ struct ContentAreaView: View {
             if self.viewModel.quickLookURL == nil {
                 return self.handleKeyDown(event)
             }
-            return event // Pass through if Quick Look is active
+            return event  // Pass through if Quick Look is active
         }
 
         // Global monitor for when Quick Look is active (higher priority)
@@ -110,7 +108,7 @@ struct ContentAreaView: View {
 
     private func handleKeyDown(_ event: NSEvent) -> NSEvent? {
         // Space bar for Quick Look
-        if event.keyCode == 49 { // Space bar
+        if event.keyCode == 49 {  // Space bar
             if self.viewModel.quickLookURL != nil {
                 // Close Quick Look if it's open
                 self.viewModel.quickLookURL = nil
@@ -122,32 +120,55 @@ struct ContentAreaView: View {
             }
         }
 
-        // Arrow keys for navigation (work in both normal and Quick Look modes)
-        if event.keyCode == 126 { // Up arrow
-            self.selectPreviousFile()
-            return nil
-        } else if event.keyCode == 125 { // Down arrow
-            self.selectNextFile()
-            return nil
-        } else if event.keyCode == 123 { // Left arrow
-            self.viewModel.goBack()
-            return nil
-        } else if event.keyCode == 124 { // Right arrow
-            self.viewModel.goForward()
-            return nil
+        // Arrow keys for navigation
+        if viewModel.quickLookURL == nil {
+            if event.keyCode == 126 {  // Up arrow
+                self.selectPreviousFile()
+                return nil
+            } else if event.keyCode == 125 {  // Down arrow
+                self.selectNextFile()
+                return nil
+            } else if event.keyCode == 123 {  // Left arrow
+                self.viewModel.goBack()
+                return nil
+            } else if event.keyCode == 124 {  // Right arrow
+                self.viewModel.goForward()
+                return nil
+            }
+        } else {
+            // Quick Look is active: left/right arrow to change previewed file
+            guard let currentURL = viewModel.quickLookURL else { return event }
+            let files = viewModel.filteredFiles
+            guard let currentIndex = files.firstIndex(where: { viewModel.fileURL(for: $0) == currentURL }) else { return event }
+            if event.keyCode == 123 { // Left arrow
+                let prevIndex = currentIndex == 0 ? files.count - 1 : currentIndex - 1
+                let prevFile = files[prevIndex]
+                if let url = viewModel.fileURL(for: prevFile) {
+                    viewModel.quickLookURL = url
+                }
+                return nil
+            } else if event.keyCode == 124 { // Right arrow
+                let nextIndex = (currentIndex + 1) % files.count
+                let nextFile = files[nextIndex]
+                if let url = viewModel.fileURL(for: nextFile) {
+                    viewModel.quickLookURL = url
+                }
+                return nil
+            }
         }
 
         // Enter key to open (only in normal mode)
-        if event.keyCode == 36 && viewModel.quickLookURL == nil { // Return/Enter
+        if event.keyCode == 36 && viewModel.quickLookURL == nil {  // Return/Enter
             if let selectedFileId = self.viewModel.selectedFiles.first,
-               let file = self.viewModel.filteredFiles.first(where: { $0.id == selectedFileId }) {
+                let file = self.viewModel.filteredFiles.first(where: { $0.id == selectedFileId })
+            {
                 self.viewModel.openFile(file)
             }
             return nil
         }
 
         // Delete/Backspace for trash (only in normal mode)
-        if (event.keyCode == 51 || event.keyCode == 117) && viewModel.quickLookURL == nil { // Delete or Forward Delete
+        if (event.keyCode == 51 || event.keyCode == 117) && viewModel.quickLookURL == nil {  // Delete or Forward Delete
             if !self.viewModel.selectedFiles.isEmpty {
                 self.viewModel.trash()
             }
@@ -155,14 +176,14 @@ struct ContentAreaView: View {
         }
 
         // Escape to cancel rename (only in normal mode)
-        if event.keyCode == 53 && viewModel.quickLookURL == nil { // Escape
+        if event.keyCode == 53 && viewModel.quickLookURL == nil {  // Escape
             if self.viewModel.renamingFileId != nil {
                 self.viewModel.cancelRenaming()
                 return nil
             }
         }
 
-        return event // Pass through other events
+        return event  // Pass through other events
     }
 
     var body: some View {
@@ -196,21 +217,26 @@ struct ContentAreaView: View {
 
     private var listView: some View {
         let columns: [GridItem] = [
-            GridItem(.fixed(24)), // Icon
-            GridItem(.flexible()), // Name
-            GridItem(.fixed(80)), // Size
-            GridItem(.fixed(120)), // Kind
-            GridItem(.fixed(160)) // Date Added
+            GridItem(.fixed(24)),  // Icon
+            GridItem(.flexible()),  // Name
+            GridItem(.fixed(80)),  // Size
+            GridItem(.fixed(120)),  // Kind
+            GridItem(.fixed(160)),  // Date Added
         ]
 
         return VStack(spacing: 0) {
             // Column headers
             LazyVGrid(columns: columns, spacing: 0) {
-                Color.clear.frame(width: 24, height: 20) // Icon header placeholder
-                SortableHeader(title: "Name", column: .name, viewModel: viewModel, alignment: .leading)
-                SortableHeader(title: "Size", column: .size, viewModel: viewModel, alignment: .trailing)
-                SortableHeader(title: "Kind", column: .kind, viewModel: viewModel, alignment: .leading)
-                SortableHeader(title: "Date Added", column: .dateAdded, viewModel: viewModel, alignment: .leading)
+                Color.clear.frame(width: 24, height: 20)  // Icon header placeholder
+                SortableHeader(
+                    title: "Name", column: .name, viewModel: viewModel, alignment: .leading)
+                SortableHeader(
+                    title: "Size", column: .size, viewModel: viewModel, alignment: .trailing)
+                SortableHeader(
+                    title: "Kind", column: .kind, viewModel: viewModel, alignment: .leading)
+                SortableHeader(
+                    title: "Date Added", column: .dateAdded, viewModel: viewModel,
+                    alignment: .leading)
             }
             .font(.system(size: 13, weight: .regular))
             .foregroundColor(.gray)
@@ -230,25 +256,36 @@ struct ContentAreaView: View {
 
     private var gridView: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: .infinity), spacing: 12)], spacing: 12) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 120, maximum: .infinity), spacing: 12)],
+                spacing: 12
+            ) {
                 ForEach(viewModel.filteredFiles) { file in
                     VStack(spacing: 6) {
                         VStack(spacing: 4) {
                             if let url = viewModel.fileURL(for: file) {
                                 Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
                                     .resizable()
-                                    .frame(width: CGFloat(viewModel.iconSize), height: CGFloat(viewModel.iconSize))
+                                    .frame(
+                                        width: CGFloat(viewModel.iconSize),
+                                        height: CGFloat(viewModel.iconSize))
                             } else {
                                 Image(systemName: file.isFolder ? "folder" : "doc")
                                     .resizable()
-                                    .frame(width: CGFloat(viewModel.iconSize), height: CGFloat(viewModel.iconSize))
+                                    .frame(
+                                        width: CGFloat(viewModel.iconSize),
+                                        height: CGFloat(viewModel.iconSize)
+                                    )
                                     .foregroundColor(file.isFolder ? .blue : .white)
                             }
 
                             if viewModel.renamingFileId == file.id {
-                                TextField("Filename", text: $viewModel.renameText, onCommit: {
-                                    viewModel.confirmRename()
-                                })
+                                TextField(
+                                    "Filename", text: $viewModel.renameText,
+                                    onCommit: {
+                                        viewModel.confirmRename()
+                                    }
+                                )
                                 .textFieldStyle(.plain)
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity)
@@ -271,9 +308,10 @@ struct ContentAreaView: View {
                         .onTapGesture {
                             viewModel.selectFile(file)
                         }
-                        .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            viewModel.openFile(file)
-                        })
+                        .simultaneousGesture(
+                            TapGesture(count: 2).onEnded {
+                                viewModel.openFile(file)
+                            })
                     }
                 }
             }
@@ -296,9 +334,12 @@ struct ContentAreaView: View {
             }
 
             if viewModel.renamingFileId == file.id {
-                TextField("Filename", text: $viewModel.renameText, onCommit: {
-                    viewModel.confirmRename()
-                })
+                TextField(
+                    "Filename", text: $viewModel.renameText,
+                    onCommit: {
+                        viewModel.confirmRename()
+                    }
+                )
                 .textFieldStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onExitCommand {
@@ -319,8 +360,11 @@ struct ContentAreaView: View {
                 .frame(width: 160, alignment: .leading)
         }
         .background(
-            (viewModel.selectedFiles.contains(file.id)) ? Color.blue.opacity(0.2) : (hoveredFile == file.id ? Color.white.opacity(0.08) : Color.clear)
+            (viewModel.selectedFiles.contains(file.id))
+                ? Color.blue.opacity(0.2)
+                : (hoveredFile == file.id ? Color.white.opacity(0.08) : Color.clear)
         )
+        .id(selectionUpdateTrigger) // Force update on selection change
         .contentShape(Rectangle())
         .onTapGesture {
             viewModel.selectFile(file)
@@ -328,9 +372,10 @@ struct ContentAreaView: View {
         .onHover { hovering in
             hoveredFile = hovering ? file.id : nil
         }
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            viewModel.openFile(file)
-        })
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                viewModel.openFile(file)
+            })
     }
 }
 

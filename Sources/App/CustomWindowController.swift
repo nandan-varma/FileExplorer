@@ -26,18 +26,6 @@ class CustomWindowController: NSWindowController, NSWindowDelegate {
 
     override func windowDidLoad() {
         super.windowDidLoad()
-        window?.cornerRadius = 16
         window?.backgroundColor = .clear
-    }
-}
-
-extension NSWindow {
-    var cornerRadius: CGFloat {
-        get { return 0 }
-        set {
-            contentView?.wantsLayer = true
-            contentView?.layer?.cornerRadius = newValue
-            contentView?.layer?.masksToBounds = true
-        }
     }
 }

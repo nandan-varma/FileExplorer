@@ -192,11 +192,16 @@ struct ContentAreaView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.viewMode == .grid {
-                gridView
-            } else {
-                listView
+        ZStack {
+            // Glass background for content area
+            Color.clear
+                .macLiquidGlass()
+            Group {
+                if viewModel.viewMode == .grid {
+                    gridView
+                } else {
+                    listView
+                }
             }
         }
         .onAppear {
@@ -236,7 +241,7 @@ struct ContentAreaView: View {
             .font(.system(size: 13, weight: .regular))
             .foregroundColor(.gray)
             .padding(.vertical, 6)
-            .background(Color.white.opacity(0.04))
+            .background(Color.white.opacity(0.04).macLiquidGlass())
             Divider()
             // File rows
             ScrollView {
@@ -288,10 +293,6 @@ struct ContentAreaView: View {
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, minHeight: 100)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(viewModel.selectedFiles.contains(file.id) ? Color.blue.opacity(0.2) : Color.clear)
-                        )
                         .contentShape(Rectangle())
                         .onTapGesture {
                             viewModel.selectFile(file)

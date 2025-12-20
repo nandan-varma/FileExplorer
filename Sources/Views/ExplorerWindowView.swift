@@ -7,15 +7,17 @@ struct ExplorerWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                SidebarView(viewModel: viewModel)
-                ContentAreaView(viewModel: viewModel)
+            // Main content without global glass or padding
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    SidebarView(viewModel: viewModel)
+                    ContentAreaView(viewModel: viewModel)
+                }
+                StatusBarView(viewModel: viewModel)
             }
-            StatusBarView(viewModel: viewModel)
         }
-        .background(Color(.windowBackgroundColor))
-        .cornerRadius(12)
-        .alert("Error", isPresented: $viewModel.showErrorAlert, presenting: viewModel.errorMessage) { _ in
+        .alert("Error", isPresented: $viewModel.showErrorAlert, presenting: viewModel.errorMessage)
+        { _ in
             Button("OK") {
                 viewModel.errorMessage = nil
                 viewModel.showErrorAlert = false
@@ -26,7 +28,9 @@ struct ExplorerWindowView: View {
         .background(
             SharingServicePickerView(
                 urls: viewModel.selectedFiles.compactMap { selectedFileId in
-                    viewModel.filteredFiles.first(where: { $0.id == selectedFileId }).flatMap { viewModel.fileURL(for: $0) }
+                    viewModel.filteredFiles.first(where: { $0.id == selectedFileId }).flatMap {
+                        viewModel.fileURL(for: $0)
+                    }
                 },
                 isPresented: $showSharingPicker
             )
@@ -69,7 +73,8 @@ struct ExplorerWindowView: View {
                     .disabled(viewModel.selectedFiles.isEmpty)
                     Button(action: {
                         let urls = viewModel.selectedFiles.compactMap { selectedFileId in
-                            viewModel.filteredFiles.first(where: { $0.id == selectedFileId }).flatMap { viewModel.fileURL(for: $0) }
+                            viewModel.filteredFiles.first(where: { $0.id == selectedFileId })
+                                .flatMap { viewModel.fileURL(for: $0) }
                         }
                         if !urls.isEmpty {
                             showSharingPicker = true
@@ -84,7 +89,9 @@ struct ExplorerWindowView: View {
                         ViewOptionsPopover(viewModel: viewModel)
                     }
                     Button(action: { viewModel.toggleViewMode() }) {
-                        Image(systemName: viewModel.viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                        Image(
+                            systemName: viewModel.viewMode == .list
+                                ? "square.grid.2x2" : "list.bullet")
                     }
                     Menu {
                         Button("New Folder", action: viewModel.createNewFolder)
@@ -92,12 +99,18 @@ struct ExplorerWindowView: View {
                         Divider()
                         Button("Copy", action: viewModel.copySelectedFiles)
                         Button("Duplicate", action: viewModel.duplicateSelectedFiles)
-                        Button("Rename", action: {
-                            if let selectedFileId = viewModel.selectedFiles.first,
-                               let file = viewModel.filteredFiles.first(where: { $0.id == selectedFileId }) {
-                                viewModel.startRenaming(file)
+                        Button(
+                            "Rename",
+                            action: {
+                                if let selectedFileId = viewModel.selectedFiles.first,
+                                    let file = viewModel.filteredFiles.first(where: {
+                                        $0.id == selectedFileId
+                                    })
+                                {
+                                    viewModel.startRenaming(file)
+                                }
                             }
-                        })
+                        )
                         .disabled(viewModel.selectedFiles.isEmpty)
                         Divider()
                         Button("Get Info", action: viewModel.showGetInfo)
@@ -115,8 +128,8 @@ struct ExplorerWindowView: View {
                             .frame(minWidth: 120, maxWidth: .infinity)
                     }
                     .padding(6)
-                    .background(Color.white.opacity(0.10))
-                    .cornerRadius(8)
+                    .background(.thinMaterial)
+                    .macLiquidGlass()
                 }
             }
         }

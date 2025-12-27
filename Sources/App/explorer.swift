@@ -10,19 +10,21 @@ struct FileItem: Identifiable, Hashable {
     var name: String { url.lastPathComponent }
     let size: Int64?
     let modifiedDate: Date?
+    let creationDate: Date?
     let isDirectory: Bool
     var fileExtension: String { url.pathExtension }
 
     init(url: URL) {
         self.url = url
         self.isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .creationDateKey])
         if let fileSize = values?.fileSize {
             self.size = Int64(fileSize)
         } else {
             self.size = nil
         }
         self.modifiedDate = values?.contentModificationDate
+        self.creationDate = values?.creationDate
     }
 }
 
@@ -63,7 +65,7 @@ struct FileManagerService: FileService {
 }
 
 // MARK: - ViewModels
-enum ViewMode { case list, icon }
+enum ViewMode { case list, icon, column }
 
 class FileExplorerViewModel: ObservableObject {
     @Published var currentDirectory: FileItem?
@@ -90,8 +92,13 @@ class FileExplorerViewModel: ObservableObject {
         return items.filter { $0.name.lowercased().contains(searchQuery.lowercased()) }
     }
 
+    func sortedItems(using sortOrder: [KeyPathComparator<FileItem>]) -> [FileItem] {
+        return filteredItems.sorted(using: sortOrder)
+    }
+
     var canGoBack: Bool { currentIndex > 0 }
     var canGoForward: Bool { currentIndex < navigationStack.count - 1 }
+    var canGoUp: Bool { currentDirectory?.url.path != "/" }
 
     var selectedItems: [FileItem] {
         items.filter { selectedItemIDs.contains($0.id) }
@@ -121,6 +128,12 @@ class FileExplorerViewModel: ObservableObject {
         guard canGoForward else { return }
         currentIndex += 1
         navigateToDirectory(navigationStack[currentIndex])
+    }
+
+    func goUp() {
+        guard canGoUp, let dir = currentDirectory else { return }
+        let parent = FileItem(url: dir.url.deletingLastPathComponent())
+        navigateToDirectory(parent)
     }
 
     func createFile(name: String) {
@@ -199,9 +212,17 @@ struct MainView: View {
 
 struct ToolbarView: View {
     @ObservedObject var viewModel: FileExplorerViewModel
+    @State private var showCreateFile = false
+    @State private var showCreateFolder = false
+    @State private var newName = ""
 
     var body: some View {
         HStack {
+            Button(action: viewModel.goUp) {
+                Image(systemName: "chevron.up")
+            }
+            .disabled(!viewModel.canGoUp)
+
             Button(action: viewModel.goBack) {
                 Image(systemName: "chevron.left")
             }
@@ -212,9 +233,20 @@ struct ToolbarView: View {
             }
             .disabled(!viewModel.canGoForward)
 
+            Button("New File") {
+                newName = ""
+                showCreateFile = true
+            }
+
+            Button("New Folder") {
+                newName = ""
+                showCreateFolder = true
+            }
+
             Picker("View Mode", selection: $viewModel.viewMode) {
                 Text("List").tag(ViewMode.list)
                 Text("Icon").tag(ViewMode.icon)
+                Text("Column").tag(ViewMode.column)
             }
             .pickerStyle(.segmented)
 
@@ -230,6 +262,85 @@ struct ToolbarView: View {
         }
         .padding()
         .background(Color.gray.opacity(0.1))
+        .sheet(isPresented: $showCreateFile) {
+            CreateDialog(title: "New File", name: $newName, onCreate: {
+                viewModel.createFile(name: newName)
+                showCreateFile = false
+            }, onCancel: { showCreateFile = false })
+        }
+        .sheet(isPresented: $showCreateFolder) {
+            CreateDialog(title: "New Folder", name: $newName, onCreate: {
+                viewModel.createDirectory(name: newName)
+                showCreateFolder = false
+            }, onCancel: { showCreateFolder = false })
+        }
+    }
+}
+
+struct CreateDialog: View {
+    let title: String
+    @Binding var name: String
+    let onCreate: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack {
+            Text(title)
+            TextField("Name", text: $name)
+            HStack {
+                Button("Cancel", action: onCancel)
+                Button("Create", action: onCreate)
+                    .disabled(name.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 300, height: 150)
+    }
+}
+
+struct RenameDialog: View {
+    @Binding var name: String
+    let onRename: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack {
+            Text("Rename")
+            TextField("New Name", text: $name)
+            HStack {
+                Button("Cancel", action: onCancel)
+                Button("Rename", action: onRename)
+                    .disabled(name.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 300, height: 150)
+    }
+}
+
+struct ColumnView: View {
+    @ObservedObject var viewModel: FileExplorerViewModel
+
+    var body: some View {
+        List(viewModel.filteredItems) { item in
+            HStack {
+                Image(systemName: item.isDirectory ? "folder" : "doc")
+                Text(item.name)
+            }
+            .onTapGesture(count: 2) {
+                if item.isDirectory {
+                    viewModel.navigateToDirectory(item)
+                } else {
+                    NSWorkspace.shared.open(item.url)
+                }
+            }
+            .contextMenu {
+                Button("Get Info") { NSWorkspace.shared.selectFile(item.url.path, inFileViewerRootedAtPath: item.url.deletingLastPathComponent().path) }
+                Button("Quick Look") { /* TODO */ }
+                Button("Compress") { /* TODO */ }
+                Button("Tags") { /* TODO */ }
+            }
+        }
     }
 }
 
@@ -239,7 +350,9 @@ struct SidebarView: View {
     let standardDirectories: [FileItem] = {
         let directories: [FileManager.SearchPathDirectory] = [.documentDirectory, .downloadsDirectory, .desktopDirectory]
         let urls = directories.flatMap { FileManager.default.urls(for: $0, in: .userDomainMask) }
-        return urls.map(FileItem.init)
+        let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: []) ?? []
+        let volumeItems = volumes.map(FileItem.init)
+        return urls.map(FileItem.init) + volumeItems
     }()
 
     var body: some View {
@@ -264,6 +377,8 @@ struct ContentView: View {
                 ListView(viewModel: viewModel)
             case .icon:
                 IconView(viewModel: viewModel)
+            case .column:
+                ColumnView(viewModel: viewModel)
             }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -294,46 +409,72 @@ struct ContentView: View {
 struct ListView: View {
     @ObservedObject var viewModel: FileExplorerViewModel
     @State private var selection = Set<FileItem.ID>()
+    @State private var sortOrder = [KeyPathComparator(\FileItem.name)]
     @State private var quickLookURL: URL?
+    @State private var showRename = false
+    @State private var itemToRename: FileItem?
+    @State private var renameName = ""
+
+    var sortedItems: [FileItem] {
+        viewModel.sortedItems(using: sortOrder)
+    }
 
     var body: some View {
-        List(viewModel.filteredItems, selection: $selection) { item in
-            HStack {
-                Image(systemName: item.isDirectory ? "folder" : "doc")
-                VStack(alignment: .leading) {
+        Table(sortedItems, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Name", value: \.name) { item in
+                HStack {
+                    Image(systemName: item.isDirectory ? "folder" : "doc")
                     Text(item.name)
-                    HStack {
-                        Text("Size: \(item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "--")")
-                        Text("Modified: \(item.modifiedDate?.formatted() ?? "--")")
-                        Text("Kind: \(item.fileExtension.isEmpty ? "Folder" : item.fileExtension.uppercased())")
+                }
+                .onTapGesture(count: 2) {
+                    if item.isDirectory {
+                        viewModel.navigateToDirectory(item)
+                    } else {
+                        NSWorkspace.shared.open(item.url)
                     }
-                    .font(.caption)
+                }
+                .contextMenu {
+                    Button("Rename") {
+                        itemToRename = item
+                        renameName = item.name
+                        showRename = true
+                    }
+                    Button("Get Info") { openGetInfo(for: item) }
+                    Button("Quick Look") { quickLookURL = item.url }
+                    Button("Compress") { compressItem(item) }
+                    Button("Tags") { openTags(for: item) }
                 }
             }
-            .onTapGesture(count: 2) {
-                if item.isDirectory {
-                    viewModel.navigateToDirectory(item)
-                } else {
-                    NSWorkspace.shared.open(item.url)
-                }
+            TableColumn("Size") { item in
+                Text(item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "--")
             }
-            .contextMenu {
-                Button("Get Info") { openGetInfo(for: item) }
-                Button("Quick Look") { quickLookURL = item.url }
-                Button("Compress") { compressItem(item) }
-                Button("Tags") { openTags(for: item) }
+            TableColumn("Created") { item in
+                Text(item.creationDate?.formatted() ?? "--")
             }
-            .onDrag { NSItemProvider(object: item.url as NSURL) }
+            TableColumn("Modified") { item in
+                Text(item.modifiedDate?.formatted() ?? "--")
+            }
+            TableColumn("Kind") { item in
+                Text(item.fileExtension.isEmpty ? "Folder" : item.fileExtension.uppercased())
+            }
         }
         .quickLookPreview($quickLookURL)
         .onKeyPress(.space) {
-            if let selected = selection.first, let item = viewModel.filteredItems.first(where: { $0.id == selected }) {
+            if let selected = selection.first, let item = sortedItems.first(where: { $0.id == selected }) {
                 quickLookURL = item.url
             }
             return .handled
         }
         .onDeleteCommand {
-            viewModel.deleteItems(viewModel.filteredItems.filter { selection.contains($0.id) })
+            viewModel.deleteItems(sortedItems.filter { selection.contains($0.id) })
+        }
+        .sheet(isPresented: $showRename) {
+            if let item = itemToRename {
+                RenameDialog(name: $renameName, onRename: {
+                    viewModel.renameItem(item, to: renameName)
+                    showRename = false
+                }, onCancel: { showRename = false })
+            }
         }
     }
 
@@ -356,6 +497,9 @@ struct ListView: View {
 struct IconView: View {
     @ObservedObject var viewModel: FileExplorerViewModel
     @State private var quickLookURL: URL?
+    @State private var selectedItem: FileItem?
+    @State private var showRename = false
+    @State private var renameName = ""
 
     let columns = [GridItem(.adaptive(minimum: 80))]
 
@@ -371,6 +515,10 @@ struct IconView: View {
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                     }
+                    .background(selectedItem?.id == item.id ? Color.blue.opacity(0.3) : Color.clear)
+                    .onTapGesture(count: 1) {
+                        selectedItem = item
+                    }
                     .onTapGesture(count: 2) {
                         if item.isDirectory {
                             viewModel.navigateToDirectory(item)
@@ -379,6 +527,11 @@ struct IconView: View {
                         }
                     }
                     .contextMenu {
+                        Button("Rename") {
+                            selectedItem = item
+                            renameName = item.name
+                            showRename = true
+                        }
                         Button("Get Info") { NSWorkspace.shared.selectFile(item.url.path, inFileViewerRootedAtPath: item.url.deletingLastPathComponent().path) }
                         Button("Quick Look") { quickLookURL = item.url }
                         Button("Compress") { compressItem(item) }
@@ -390,6 +543,21 @@ struct IconView: View {
             .padding()
         }
         .quickLookPreview($quickLookURL)
+        .onKeyPress(.space) {
+            if let item = selectedItem {
+                quickLookURL = item.url
+            }
+            return .handled
+        }
+        .focusable()
+        .sheet(isPresented: $showRename) {
+            if let item = selectedItem {
+                RenameDialog(name: $renameName, onRename: {
+                    viewModel.renameItem(item, to: renameName)
+                    showRename = false
+                }, onCancel: { showRename = false })
+            }
+        }
     }
 
     private func compressItem(_ item: FileItem) {

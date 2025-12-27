@@ -38,7 +38,6 @@ struct StatusBarView: View {
         .padding(.vertical, 6)
         .padding(.horizontal, 16)
         .background(.thinMaterial)
-        .macLiquidGlass()
     }
 }
 

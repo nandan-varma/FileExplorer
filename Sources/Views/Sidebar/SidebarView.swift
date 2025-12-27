@@ -60,8 +60,6 @@ struct SidebarView: View {
         .padding(.horizontal, 8)
         .frame(width: isCollapsed ? 36 : 240)
         .frame(maxHeight: .infinity)
-        .glassEffect(.regular)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .padding(.vertical, 8)
         .padding(.trailing, 4)
         .animation(.easeInOut, value: isCollapsed)

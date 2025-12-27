@@ -3,8 +3,9 @@
 
 set -e
 
-# Build the Swift package in release mode
-swift build --configuration release
+# Build the Swift package in specified configuration (default: release)
+CONFIG="${1:-release}"
+swift build --configuration "$CONFIG"
 
 # App bundle variables
 APP_NAME="Explorer"
@@ -38,10 +39,10 @@ if [ -d Sources/Resources ]; then
 		-exec cp {} "$RESOURCES_DIR/" \;
 fi
 
-# Sign the executable (ad-hoc)
-codesign --force --sign - "$MACOS_DIR/explorer"
+# Sign the executable with entitlements (ad-hoc)
+codesign --force --sign - --entitlements Sources/Resources/explorer.entitlements "$MACOS_DIR/explorer"
 
-# Sign the app bundle (ad-hoc)
-codesign --force --sign - "$APP_DIR"
+# Sign the app bundle with entitlements (ad-hoc)
+codesign --force --sign - --entitlements Sources/Resources/explorer.entitlements "$APP_DIR"
 
 echo "App built at $APP_DIR"

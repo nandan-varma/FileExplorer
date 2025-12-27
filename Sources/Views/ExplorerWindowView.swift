@@ -7,7 +7,6 @@ struct ExplorerWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main content without global glass or padding
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     SidebarView(viewModel: viewModel)
@@ -129,7 +128,6 @@ struct ExplorerWindowView: View {
                     }
                     .padding(6)
                     .background(.thinMaterial)
-                    .macLiquidGlass()
                 }
             }
         }

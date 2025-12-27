@@ -188,9 +188,7 @@ struct ContentAreaView: View {
 
     var body: some View {
         ZStack {
-            // Glass background for content area
             Color.clear
-                .macLiquidGlass()
             Group {
                 if viewModel.viewMode == .grid {
                     gridView
@@ -241,7 +239,7 @@ struct ContentAreaView: View {
             .font(.system(size: 13, weight: .regular))
             .foregroundColor(.gray)
             .padding(.vertical, 6)
-            .background(Color.white.opacity(0.04).macLiquidGlass())
+            .background(Color.white.opacity(0.04))
             Divider()
             // File rows
             ScrollView {

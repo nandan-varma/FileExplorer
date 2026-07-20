@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -105,6 +106,7 @@ namespace FileBrowser
             InitializeComponent();
             titlebar.Text = direct;
             RenderButtons(GetDirectories(direct), mainwindow.Height, mainwindow.Width);
+            InitializeFolderTree(direct);
         }
 
         private void WindowSizeChanged(object sender, SizeChangedEventArgs e)
@@ -113,6 +115,95 @@ namespace FileBrowser
             double _w = (sender as Window).Width;
 
             RenderButtons(GetDirectories(direct), _h, _w);
+        }
+
+        // --- Folder tree sidebar -------------------------------------------------
+        // Lazily populated: each node starts with a single "Loading..."
+        // placeholder child so the expand arrow shows without eagerly
+        // enumerating the whole filesystem, and is replaced with the real
+        // subfolder list the first time it's expanded.
+
+        private void InitializeFolderTree(string rootPath)
+        {
+            folderTree.Items.Clear();
+            folderTree.Items.Add(CreateFolderTreeItem(rootPath, rootPath));
+        }
+
+        private TreeViewItem CreateFolderTreeItem(string path, string headerText)
+        {
+            var item = new TreeViewItem
+            {
+                Header = headerText,
+                Tag = path,
+                Foreground = Brushes.WhiteSmoke
+            };
+            item.Items.Add(new TreeViewItem { Header = "Loading..." });
+            item.Expanded += TreeViewItem_Expanded;
+            return item;
+        }
+
+        private void PopulateChildren(TreeViewItem parentItem, string path)
+        {
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories(path))
+                {
+                    var name = Path.GetFileName(dir);
+                    if (string.IsNullOrEmpty(name)) name = dir;
+                    parentItem.Items.Add(CreateFolderTreeItem(dir, name));
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Skip folders we don't have permission to list (e.g. System Volume Information).
+            }
+        }
+
+        private void TreeViewItem_Expanded(object sender, RoutedEventArgs e)
+        {
+            if (!(sender is TreeViewItem item)) return;
+
+            // Only the placeholder child means this node hasn't been
+            // populated yet - replace it with the real subfolder list.
+            if (item.Items.Count == 1 &&
+                item.Items[0] is TreeViewItem placeholder &&
+                placeholder.Header is string text && text == "Loading...")
+            {
+                item.Items.Clear();
+                if (item.Tag is string path)
+                {
+                    PopulateChildren(item, path);
+                }
+            }
+        }
+
+        private void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        {
+            if (e.NewValue is TreeViewItem item && item.Tag is string path)
+            {
+                unrenderButtons();
+                direct = path;
+                RenderButtons(GetDirectories(path), mainwindow.Height, mainwindow.Width);
+            }
+        }
+
+        // --- Open Terminal Here ---------------------------------------------------
+
+        private void OpenTerminalHere_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    WorkingDirectory = direct,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not open a terminal here: {ex.Message}");
+            }
         }
     }
 }

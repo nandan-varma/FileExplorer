@@ -1,4 +1,4 @@
-﻿<Window x:Class="FileBrowser.MainWindow"
+<Window x:Class="FileBrowser.MainWindow"
         x:Name="mainwindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -8,41 +8,71 @@
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800"
         SizeChanged="WindowSizeChanged">
-    <ScrollViewer x:Name="scrollingbar" VerticalScrollBarVisibility="Auto">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.Background>
+            <SolidColorBrush Color="Black"></SolidColorBrush>
+        </Grid.Background>
 
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="162*"/>
-                <ColumnDefinition Width="19*"/>
-                <ColumnDefinition Width="219*"/>
-            </Grid.ColumnDefinitions>
-            <Grid.Background>
-                <SolidColorBrush Color="Black"></SolidColorBrush>
-            </Grid.Background>
+        <!-- Folder tree: click a folder to navigate the browser pane to it -->
+        <Grid Grid.Column="0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="50"></RowDefinition>
-                <RowDefinition Height="*"></RowDefinition>
-                <RowDefinition Height="50"></RowDefinition>
+                <RowDefinition Height="50"/>
+                <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
+
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="200"></ColumnDefinition>
-                    <ColumnDefinition Width="*"></ColumnDefinition>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Foreground="WhiteSmoke" Grid.Column="0" x:Name="titlebar" FontSize="32" Grid.ColumnSpan="2" Margin="0,0,-475,0">Directory</TextBlock>
-                <TextBlock Foreground="WhiteSmoke" Grid.Column="1" x:Name="details" FontSize="32" Margin="475,0,-475,0">Details</TextBlock>
+                <TextBlock Grid.Column="0" Foreground="WhiteSmoke" FontSize="16"
+                           VerticalAlignment="Center" Margin="10,0,0,0" Text="Folders"/>
+                <Button x:Name="terminalButton" Grid.Column="1" Content="Open Terminal"
+                        Margin="0,0,10,0" Click="OpenTerminalHere_Click"/>
             </Grid>
 
-            <Canvas Grid.Row="1" x:Name="LayoutRoot" Grid.ColumnSpan="3">
-                <Canvas.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="Copy"></MenuItem>
-                        <MenuItem Header="Paste"></MenuItem>
-                    </ContextMenu>
-                </Canvas.ContextMenu>
-            </Canvas>
-
-
+            <TreeView x:Name="folderTree" Grid.Row="1"
+                      Background="#FF1E1E1E" Foreground="WhiteSmoke" BorderThickness="0"
+                      SelectedItemChanged="FolderTree_SelectedItemChanged"/>
         </Grid>
-    </ScrollViewer>
+
+        <ScrollViewer x:Name="scrollingbar" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="162*"/>
+                    <ColumnDefinition Width="19*"/>
+                    <ColumnDefinition Width="219*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="50"></RowDefinition>
+                    <RowDefinition Height="*"></RowDefinition>
+                    <RowDefinition Height="50"></RowDefinition>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200"></ColumnDefinition>
+                        <ColumnDefinition Width="*"></ColumnDefinition>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Foreground="WhiteSmoke" Grid.Column="0" x:Name="titlebar" FontSize="32" Grid.ColumnSpan="2" Margin="0,0,-475,0">Directory</TextBlock>
+                    <TextBlock Foreground="WhiteSmoke" Grid.Column="1" x:Name="details" FontSize="32" Margin="475,0,-475,0">Details</TextBlock>
+                </Grid>
+
+                <Canvas Grid.Row="1" x:Name="LayoutRoot" Grid.ColumnSpan="3">
+                    <Canvas.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy"></MenuItem>
+                            <MenuItem Header="Paste"></MenuItem>
+                        </ContextMenu>
+                    </Canvas.ContextMenu>
+                </Canvas>
+
+
+            </Grid>
+        </ScrollViewer>
+    </Grid>
 </Window>

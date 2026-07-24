@@ -1,36 +1,20 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net5.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <Win32Resource />
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="FileBrowser\images\folder.png" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="FileBrowser\images\folder.png">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </EmbeddedResource>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="Properties\Resources.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Resources.resx</DependentUpon>
-    </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Update="Properties\Resources.resx">
-      <Generator>PublicResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
+    <!-- Microsoft.VisualBasic.FileIO.FileSystem sends deletes to the Recycle Bin
+         with the native Explorer confirmation UI - there's no first-class System.IO
+         equivalent, so this is the standard way to get that behavior from .NET. -->
+    <PackageReference Include="Microsoft.VisualBasic" Version="10.4.0" />
   </ItemGroup>
 
 </Project>

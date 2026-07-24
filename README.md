@@ -1,22 +1,21 @@
 # FileExplorer
 
-A minimal Windows file browser built with C# and WPF (project name `FileBrowser`). A folder tree sidebar for navigating deep folder structures at a glance, plus a wrapping grid of folder-icon buttons for the current directory - click either to descend into a folder. A one-click "Open Terminal" button opens `cmd.exe` in the folder you're currently browsing.
+Windows Explorer always bothered me. No tree view for navigating deep folder structures, and opening a terminal in the current directory required too many steps. I built a replacement that fixed both.
 
-This was an early C#/.NET learning project — the first time working with WPF and XAML — built to get comfortable with the framework rather than to replace Windows Explorer outright.
+## Features
 
-## What it does
+- **Tree view** that shows the full folder hierarchy at a glance - rooted at every drive on the machine, lazily populated so it never walks the filesystem upfront, and kept in sync with the folder you're browsing.
+- **Integrated terminal** that opens already `cd`'d into the current directory - Windows Terminal if it's installed, falling back to PowerShell then `cmd.exe`.
+- **All standard file operations**: New Folder, New File, Cut/Copy/Paste (backed by the real Windows clipboard, so it interoperates with Explorer), Rename, Delete (to the Recycle Bin, with confirmation), and Properties - from the toolbar, right-click menus, and keyboard shortcuts.
+- Sortable, searchable file listing with shell icons, size, type, and last-modified date.
+- Back/Forward history, Up a level, Refresh, and an editable address bar.
+- Keyboard shortcuts: `Backspace`/`Alt+Left`/`Alt+Right` navigate, `F5` refresh, `Ctrl+X/C/V` cut/copy/paste, `F2` rename, `Delete` delete, `Ctrl+A` select all, `Ctrl+F` focus search, `Ctrl+Shift+N` new folder, `Enter` open, `Alt+Enter` properties.
 
-- Folder tree sidebar, lazily populated - each node loads its subfolders only the first time it's expanded, rather than walking the whole filesystem upfront
-- Lists subdirectories of the current folder as clickable buttons, laid out in a wrapping grid that re-flows on window resize
-- Clicking a folder button, or a node in the tree sidebar, navigates into that folder
-- "Open Terminal" button launches `cmd.exe` with its working directory set to the folder currently being browsed
-- Right-click context menu with a "Copy" item (currently just confirms the click - no clipboard operation wired up yet)
+## Built with
 
-## Requirements
-
-- Windows
-- .NET 5.0 (`net5.0-windows`)
-- WPF (`UseWPF`)
+- C# / .NET 8
+- WPF / XAML, using an MVVM architecture: view models own all app state and behavior, a small service layer wraps every OS-facing concern (file system, shell icons, file operations, clipboard, terminal launch, dialogs), and the views are thin XAML bindings with no business logic in code-behind.
+- Directory loads, file transfers, and deletes run off the UI thread and are cancellable, so browsing a slow or huge folder never freezes the window.
 
 ## Getting started
 
@@ -26,7 +25,7 @@ Open `FileBrowser.sln` in Visual Studio and run, or:
 dotnet run --project FileBrowser.csproj
 ```
 
-## Built with
+## Requirements
 
-- C# + WPF (XAML)
-- .NET 5.0
+- Windows 10/11
+- .NET 8.0 (`net8.0-windows`)

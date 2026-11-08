@@ -1,78 +1,181 @@
 <Window x:Class="FileBrowser.MainWindow"
-        x:Name="mainwindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:FileBrowser"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800"
-        SizeChanged="WindowSizeChanged">
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <Grid.Background>
-            <SolidColorBrush Color="Black"></SolidColorBrush>
-        </Grid.Background>
+        Title="File Explorer"
+        Width="1200"
+        Height="760"
+        MinWidth="960"
+        MinHeight="600"
+        Background="#FF1E1E1E"
+        Closing="Window_Closing">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="6"/>
+            <RowDefinition Height="220"/>
+        </Grid.RowDefinitions>
 
-        <!-- Folder tree: click a folder to navigate the browser pane to it -->
-        <Grid Grid.Column="0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="50"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <Grid Grid.Row="0">
+        <Border Grid.Row="0" CornerRadius="8" Background="#FF2A2A2A" Padding="10" Margin="0,0,0,10">
+            <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Foreground="WhiteSmoke" FontSize="16"
-                           VerticalAlignment="Center" Margin="10,0,0,0" Text="Folders"/>
-                <Button x:Name="terminalButton" Grid.Column="1" Content="Open Terminal"
-                        Margin="0,0,10,0" Click="OpenTerminalHere_Click"/>
-            </Grid>
 
-            <TreeView x:Name="folderTree" Grid.Row="1"
-                      Background="#FF1E1E1E" Foreground="WhiteSmoke" BorderThickness="0"
-                      SelectedItemChanged="FolderTree_SelectedItemChanged"/>
+                <StackPanel Orientation="Horizontal" Grid.Column="0">
+                    <Button x:Name="backButton" Content="Back" Width="72" Margin="0,0,8,0" Click="BackButton_Click"/>
+                    <Button x:Name="upButton" Content="Up" Width="72" Margin="0,0,8,0" Click="UpButton_Click"/>
+                    <Button Content="Refresh" Width="72" Margin="0,0,8,0" Click="RefreshButton_Click"/>
+                    <Button Content="New Folder" Width="92" Click="NewFolderButton_Click"/>
+                </StackPanel>
+
+                <TextBox x:Name="currentPathText"
+                         Grid.Column="4"
+                         Margin="12,0"
+                         IsReadOnly="True"
+                         VerticalContentAlignment="Center"
+                         Background="#FF1E1E1E"
+                         Foreground="WhiteSmoke"
+                         BorderBrush="#FF444444"/>
+
+                <Button Grid.Column="5"
+                        Width="150"
+                        Content="Open Terminal Here"
+                        Click="OpenTerminalHere_Click"/>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" CornerRadius="8" Background="#FF2A2A2A">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Folder Tree"
+                               Foreground="WhiteSmoke"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+                    <TreeView x:Name="folderTree"
+                              Grid.Row="1"
+                              Background="#FF1E1E1E"
+                              Foreground="WhiteSmoke"
+                              BorderBrush="#FF444444"
+                              BorderThickness="1"
+                              SelectedItemChanged="FolderTree_SelectedItemChanged"/>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          Width="10"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          Background="#FF303030"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <Border Grid.Column="2" CornerRadius="8" Background="#FF2A2A2A">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="statusText"
+                               Text="Ready"
+                               Foreground="WhiteSmoke"
+                               Margin="0,0,0,8"/>
+                    <ListView x:Name="fileList"
+                              Grid.Row="1"
+                              Background="#FF1E1E1E"
+                              Foreground="WhiteSmoke"
+                              BorderBrush="#FF444444"
+                              BorderThickness="1"
+                              MouseDoubleClick="FileList_MouseDoubleClick">
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Copy" Click="CopyMenuItem_Click"/>
+                                <MenuItem Header="Cut" Click="CutMenuItem_Click"/>
+                                <MenuItem Header="Paste" Click="PasteMenuItem_Click"/>
+                                <Separator/>
+                                <MenuItem Header="Rename" Click="RenameMenuItem_Click"/>
+                                <MenuItem Header="Delete" Click="DeleteMenuItem_Click"/>
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="" Width="36" DisplayMemberBinding="{Binding IconGlyph}"/>
+                                <GridViewColumn Header="Name" Width="330" DisplayMemberBinding="{Binding Name}"/>
+                                <GridViewColumn Header="Type" Width="100" DisplayMemberBinding="{Binding Type}"/>
+                                <GridViewColumn Header="Size" Width="110" DisplayMemberBinding="{Binding SizeText}"/>
+                                <GridViewColumn Header="Modified" Width="175" DisplayMemberBinding="{Binding ModifiedText}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </Border>
         </Grid>
 
-        <ScrollViewer x:Name="scrollingbar" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+        <GridSplitter Grid.Row="2"
+                      Height="6"
+                      VerticalAlignment="Stretch"
+                      HorizontalAlignment="Stretch"
+                      Background="#FF303030"
+                      ResizeBehavior="PreviousAndNext"/>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="162*"/>
-                    <ColumnDefinition Width="19*"/>
-                    <ColumnDefinition Width="219*"/>
-                </Grid.ColumnDefinitions>
+        <Border x:Name="terminalContainer" Grid.Row="3" CornerRadius="8" Background="#FF2A2A2A" Margin="0,10,0,0">
+            <Grid Margin="8">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="50"></RowDefinition>
-                    <RowDefinition Height="*"></RowDefinition>
-                    <RowDefinition Height="50"></RowDefinition>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <Grid Grid.Row="0">
+                <TextBlock Text="Integrated Terminal"
+                           Foreground="WhiteSmoke"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,8"/>
+                <TextBox x:Name="terminalOutput"
+                         Grid.Row="1"
+                         IsReadOnly="True"
+                         VerticalScrollBarVisibility="Auto"
+                         TextWrapping="Wrap"
+                         AcceptsReturn="True"
+                         Background="#FF151515"
+                         Foreground="#FFE0E0E0"
+                         BorderBrush="#FF444444"
+                         BorderThickness="1"/>
+                <Grid Grid.Row="2" Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="200"></ColumnDefinition>
-                        <ColumnDefinition Width="*"></ColumnDefinition>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Foreground="WhiteSmoke" Grid.Column="0" x:Name="titlebar" FontSize="32" Grid.ColumnSpan="2" Margin="0,0,-475,0">Directory</TextBlock>
-                    <TextBlock Foreground="WhiteSmoke" Grid.Column="1" x:Name="details" FontSize="32" Margin="475,0,-475,0">Details</TextBlock>
+                    <TextBox x:Name="commandInput"
+                             Grid.Column="0"
+                             Background="#FF151515"
+                             Foreground="WhiteSmoke"
+                             BorderBrush="#FF444444"
+                             KeyDown="CommandInput_KeyDown"/>
+                    <Button Grid.Column="1"
+                            Content="Run"
+                            Width="72"
+                            Margin="8,0,0,0"
+                            Click="RunTerminalCommand_Click"/>
                 </Grid>
-
-                <Canvas Grid.Row="1" x:Name="LayoutRoot" Grid.ColumnSpan="3">
-                    <Canvas.ContextMenu>
-                        <ContextMenu>
-                            <MenuItem Header="Copy"></MenuItem>
-                            <MenuItem Header="Paste"></MenuItem>
-                        </ContextMenu>
-                    </Canvas.ContextMenu>
-                </Canvas>
-
-
             </Grid>
-        </ScrollViewer>
+        </Border>
     </Grid>
 </Window>
